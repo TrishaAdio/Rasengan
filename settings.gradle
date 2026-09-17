@@ -1,0 +1,15 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven {
+            name = 'NeoForged'
+            url = 'https://maven.neoforged.net/releases'
+        }
+    }
+}
+
+plugins {
+    id 'net.neoforged.moddev' version '2.0.147' apply false
+}
+
+rootProject.name = 'rasengan'

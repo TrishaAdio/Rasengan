@@ -1,0 +1,28 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "${mod_license}"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+authors = "${mod_authors}"
+description = '''
+${mod_description}
+'''
+
+# The mod ships client-only rendering classes, but they are strictly separated and
+# only referenced from Dist.CLIENT entrypoints, so a dedicated server never loads them.
+[[dependencies.${mod_id}]]
+modId = "neoforge"
+type = "required"
+versionRange = "[26.1.2.109,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "minecraft"
+type = "required"
+versionRange = "[26.1.2,26.2)"
+ordering = "NONE"
+side = "BOTH"

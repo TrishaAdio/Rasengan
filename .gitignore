@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Dev run directories created by ModDevGradle's runClient / runServer tasks
+run/
+runs/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.eclipse/
+.settings/
+.classpath
+.project
+bin/
+
+# Logs and crash reports
+*.log
+crash-reports/
+
+# OS
+.DS_Store
+Thumbs.db

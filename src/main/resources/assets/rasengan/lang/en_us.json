@@ -1,0 +1,13 @@
+{
+  "key.rasengan.activate": "Cast Rasengan",
+
+  "death.attack.rasengan": "%1$s was struck by %2$s's Rasengan",
+  "death.attack.rasengan.player": "%1$s was struck by %2$s's Rasengan",
+
+  "rasengan.configuration.title": "Rasengan Server Settings",
+
+  "rasengan.hud.power_bar": "POWER BAR",
+  "rasengan.hud.ready": "READY",
+  "rasengan.hud.casting": "CASTING",
+  "rasengan.hud.reset": "RESET"
+}
