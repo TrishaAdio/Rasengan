@@ -37,5 +37,21 @@ public final class RasenganSounds {
             REGISTRY.register("rasenshuriken_spin",
                     id -> SoundEvent.createVariableRangeEvent(id));
 
+    /**
+     * Rasengan's formation hum. One-shot covering exactly the cast window, played on the first tick
+     * of the cast so it is synchronised with the core beginning to form.
+     */
+    public static final DeferredHolder<SoundEvent, SoundEvent> RASENGAN_FORM =
+            REGISTRY.register("rasengan_form",
+                    id -> SoundEvent.createVariableRangeEvent(id));
+
+    /**
+     * Rasengan's sustained loop. Starts once the sphere reaches full formation, then rides the
+     * sphere through hold and flight and stops the moment it is gone.
+     */
+    public static final DeferredHolder<SoundEvent, SoundEvent> RASENGAN_SPIN =
+            REGISTRY.register("rasengan_spin",
+                    id -> SoundEvent.createVariableRangeEvent(id));
+
     private RasenganSounds() {}
 }

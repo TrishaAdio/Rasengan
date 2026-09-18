@@ -62,7 +62,12 @@ public final class RasenganClient {
                                                 dev.rasengan.RasenganSounds.SHURIKEN_FORM.get(),
                                                 entity, 1.0F, 1.0F, false));
                             } else {
-                                ClientEffects.playCastStartSound(level, entity.position());
+                                // Rasengan gets the same treatment: entity-bound so it tracks the
+                                // caster, and started on the cast's first tick.
+                                Minecraft.getInstance().getSoundManager().play(
+                                        new ShurikenSoundInstance(
+                                                dev.rasengan.RasenganSounds.RASENGAN_FORM.get(),
+                                                entity, 0.85F, 1.0F, false));
                             }
                         }
                     }

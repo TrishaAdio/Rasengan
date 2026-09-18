@@ -178,13 +178,21 @@ public final class ClientCastTracker {
                 continue;
             }
 
-            // Start the screech on the exact tick the blades snap out, so the audible transition
-            // and the visual unfurl are the same tick rather than approximately aligned.
-            if (cast.ability.isShuriken() && !cast.isReleased() && !cast.isCancelled()) {
+            // Start the sustained loop on the exact tick its visual beat lands, so the audible
+            // change and the visual change are the same tick rather than approximately aligned.
+            if (!cast.isReleased() && !cast.isCancelled()
+                    && !SPIN_SOUNDS.containsKey(cast.casterId)) {
                 float age = cast.age(gameTime, 1.0F);
-                if (age >= ShurikenRenderer.BLADE_SNAP_TICK
-                        && !SPIN_SOUNDS.containsKey(cast.casterId)) {
-                    startSpinSound(player);
+                if (cast.ability.isShuriken()) {
+                    // Blades snapping out.
+                    if (age >= ShurikenRenderer.BLADE_SNAP_TICK) {
+                        startSpinSound(player, RasenganSounds.SHURIKEN_SPIN.get(), 1.0F);
+                    }
+                } else {
+                    // Sphere reaching full formation (PHASE_HOLD_START of the cast window).
+                    if (age >= cast.castDuration * ClientCast.PHASE_HOLD_START) {
+                        startSpinSound(player, RasenganSounds.RASENGAN_SPIN.get(), 0.85F);
+                    }
                 }
             }
 
@@ -203,9 +211,12 @@ public final class ClientCastTracker {
     private static void tickProjectileSounds(ClientLevel level) {
         for (Entity entity : level.entitiesForRendering()) {
             if (entity instanceof dev.rasengan.server.RasenganProjectile projectile
-                    && projectile.ability().isShuriken()
                     && !SPIN_SOUNDS.containsKey(projectile.getId())) {
-                startSpinSound(projectile);
+                if (projectile.ability().isShuriken()) {
+                    startSpinSound(projectile, RasenganSounds.SHURIKEN_SPIN.get(), 1.0F);
+                } else {
+                    startSpinSound(projectile, RasenganSounds.RASENGAN_SPIN.get(), 0.85F);
+                }
             }
         }
         // Any tracked source that has been removed stops immediately - impact, despawn, max range.
@@ -231,12 +242,13 @@ public final class ClientCastTracker {
      * falloff from their own position rather than one global fade. Every nearby client runs this off
      * the same server cast packet, so it is not caster-only.
      */
-    public static void startSpinSound(Entity source) {
+    public static void startSpinSound(Entity source, net.minecraft.sounds.SoundEvent event,
+                                      float volume) {
         if (SPIN_SOUNDS.containsKey(source.getId())) {
             return;
         }
         ShurikenSoundInstance instance = new ShurikenSoundInstance(
-                RasenganSounds.SHURIKEN_SPIN.get(), source, 1.0F, 1.0F, true);
+                event, source, volume, 1.0F, true);
         SPIN_SOUNDS.put(source.getId(), instance);
         Minecraft.getInstance().getSoundManager().play(instance);
     }

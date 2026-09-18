@@ -1,4 +1,22 @@
 {
+  "rasengan_form": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rasengan:rasengan_form",
+        "stream": false
+      }
+    ]
+  },
+  "rasengan_spin": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rasengan:rasengan_spin",
+        "stream": false
+      }
+    ]
+  },
   "rasenshuriken_form": {
     "category": "player",
     "sounds": [
