@@ -56,6 +56,17 @@ public final class ClientEffects {
 
         float progress = cast.progress(gameTime, 1.0F);
 
+        // ---- Rasen Shuriken screech ramp ----
+        // Re-triggered every few ticks with a rising pitch, in step with the blade extension and
+        // spin-up, so the audio rise and the visual acceleration peak together.
+        if (cast.ability.isShuriken() && !cast.isCancelled() && !cast.isReleased()) {
+            float spinTime = Math.max(0.0F, cast.age(gameTime, 1.0F) - cast.castDuration * 0.55F);
+            float spinFraction = OrbitMath.smoothstep(0.0F, ShurikenRenderer.SPINUP_TICKS, spinTime);
+            if (spinTime > 0.0F && gameTime % 3L == 0L) {
+                playScreechStep(level, sphere, spinFraction);
+            }
+        }
+
         if (cast.isCancelled() || cast.isReleased()) {
             // Emission stops dead at release. The projectile is now the only Rasengan in
             // existence, and it emits its own particles from its own position.
@@ -246,6 +257,44 @@ public final class ClientEffects {
     public static void playCastStartSound(ClientLevel level, Vec3 at) {
         level.playLocalSound(at.x, at.y, at.z,
                 SoundEvents.BEACON_ACTIVATE, SoundSource.PLAYERS, 0.35F, 1.75F, false);
+    }
+
+    /**
+     * The Rasen Shuriken screech, ramping with the blade extension and spin-up.
+     *
+     * <p>Minecraft cannot pitch-bend a playing sound, so a continuous rise is built by re-triggering
+     * a short wind sample every few ticks with a rising pitch and volume. The step is small enough
+     * and the samples overlap enough that it reads as one accelerating screech rather than a series
+     * of beeps - the same trick vanilla uses for the note block glissando effect.
+     *
+     * @param spinFraction 0..1 progress toward full rotation speed
+     */
+    public static void playScreechStep(ClientLevel level, Vec3 at, float spinFraction) {
+        float f = Math.clamp(spinFraction, 0.0F, 1.0F);
+        // Pitch climbs across most of the usable range so the rise is clearly audible.
+        float pitch = 0.75F + 1.15F * f;
+        float volume = 0.16F + 0.30F * f;
+        level.playLocalSound(at.x, at.y, at.z,
+                SoundEvents.BREEZE_WHIRL, SoundSource.PLAYERS, volume, pitch, false);
+        if (f > 0.55F) {
+            // A second, higher layer once it is really moving, for the metallic edge.
+            level.playLocalSound(at.x, at.y, at.z,
+                    SoundEvents.ELYTRA_FLYING, SoundSource.PLAYERS, 0.10F + 0.16F * f,
+                    1.55F + 0.35F * f, false);
+        }
+    }
+
+    /**
+     * The shuriken impact: a sharp crack and shatter, deliberately brighter and shorter than
+     * Rasengan's deeper boom so the two impacts are distinguishable by ear alone.
+     */
+    public static void playShurikenImpactSound(ClientLevel level, Vec3 at) {
+        level.playLocalSound(at.x, at.y, at.z,
+                SoundEvents.WIND_CHARGE_BURST.value(), SoundSource.PLAYERS, 0.75F, 1.35F, false);
+        level.playLocalSound(at.x, at.y, at.z,
+                SoundEvents.GLASS_BREAK, SoundSource.PLAYERS, 0.55F, 1.70F, false);
+        level.playLocalSound(at.x, at.y, at.z,
+                SoundEvents.WARDEN_SONIC_BOOM, SoundSource.PLAYERS, 0.22F, 1.90F, false);
     }
 
     // ------------------------------------------------------------------

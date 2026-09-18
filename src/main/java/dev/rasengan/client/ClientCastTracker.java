@@ -1,5 +1,6 @@
 package dev.rasengan.client;
 
+import dev.rasengan.AbilityType;
 import dev.rasengan.network.RasenganPayloads;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -77,7 +78,8 @@ public final class ClientCastTracker {
                 // only to the particle layer - the mesh aura must not vanish just because someone
                 // set Particles to Minimal, or the aura would silently disappear while the
                 // sphere kept rendering. That asymmetry was the original aura bug.
-                aura));
+                aura,
+                AbilityType.byId(payload.ability())));
     }
 
     /**
@@ -99,7 +101,11 @@ public final class ClientCastTracker {
         ClientEffects.spawnImpactBurst(level, pos, payload.hitKind(),
                 cast != null ? cast.seed : payload.casterId(),
                 cast != null ? cast.particleDensity : ClientTuning.particleScale());
-        ClientEffects.playImpactSound(level, pos);
+        if (AbilityType.byId(payload.ability()).isShuriken()) {
+            ClientEffects.playShurikenImpactSound(level, pos);
+        } else {
+            ClientEffects.playImpactSound(level, pos);
+        }
     }
 
     /**

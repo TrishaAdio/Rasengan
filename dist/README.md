@@ -1,6 +1,6 @@
 # Prebuilt jar
 
-`rasengan-1.2.0.jar` — ready to install, no build needed.
+`rasengan-1.3.0.jar` — ready to install, no build needed.
 
 Requires **Minecraft Java 26.1.2**, **NeoForge 26.1.2.109+**, and **Java 25**.
 

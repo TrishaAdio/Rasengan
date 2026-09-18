@@ -57,7 +57,7 @@ These are the things that changed most recently and that the code depends on:
 
 1. Install **Java 25**.
 2. Install the **NeoForge 26.1.2.109** client profile from <https://neoforged.net>.
-3. Drop `rasengan-1.2.0.jar` into `.minecraft/mods/`.
+3. Drop `rasengan-1.3.0.jar` into `.minecraft/mods/`.
 4. Launch the NeoForge 26.1.2 profile.
 5. Optionally rebind the ability key: **Options → Controls → Gameplay → "Cast Rasengan"**
    (default **`R`**).
@@ -66,7 +66,7 @@ These are the things that changed most recently and that the code depends on:
 
 1. Install **Java 25** on the host.
 2. Install the NeoForge **26.1.2.109** server.
-3. Drop `rasengan-1.2.0.jar` into `mods/`.
+3. Drop `rasengan-1.3.0.jar` into `mods/`.
 4. Start the server once. It writes `config/rasengan-server.toml`.
 5. Edit that file, then restart (or use `/reload` for the values read per-cast).
 
@@ -560,7 +560,7 @@ cd rasengan
 ./gradlew build
 ```
 
-Output: `build/libs/rasengan-1.2.0.jar`.
+Output: `build/libs/rasengan-1.3.0.jar`.
 
 Requires **JDK 25** on `PATH` (or discoverable by Gradle's toolchain detection). The wrapper
 fetches Gradle 9.7.1 automatically. The first build downloads and decompiles Minecraft, which
@@ -594,7 +594,7 @@ python3 tools/generate_particle_textures.py
 
 | Check | Result |
 |---|---|
-| `./gradlew build` | Passes; produces `rasengan-1.2.0.jar`. |
+| `./gradlew build` | Passes; produces `rasengan-1.3.0.jar`. |
 | Dedicated server boot | `Done (0.206s)!` on `minecraft server version 26.1.2`, mod loaded as `Rasengan 1.0.0 (rasengan)`. No `NoClassDefFoundError` / `ClassNotFoundException`. |
 | Client-class isolation | `javap` over every compiled class: of 20 non-client classes, **zero** reference `net/minecraft/client/*`, and exactly **one** references `dev/rasengan/client/` — `Rasengan` → `RasenganClient`, inside the `Dist.CLIENT` branch. |
 | Config generation | `config/rasengan-server.toml` written with every documented option and the correct defaults, including `block_damage_enabled = false`. |
@@ -670,6 +670,92 @@ Not yet exercised — these need a graphical client, which the build environment
 - [ ] Casting, then disconnecting mid-cast, leaves no stuck effect for other players.
 - [ ] `/chargeit` fills the bar in Creative; refuses with a clear message in Survival/Adventure.
 - [ ] Several simultaneous casters and projectiles do not tank frame rate.
+
+---
+
+## Rasen Shuriken
+
+A second technique on the same server-authoritative pipeline, bound to **`G`** by default. It shares
+the charge state machine, the validation gate, the projectile entity and the single-hit guarantee -
+only the tuning and the visuals differ, so the safety invariants live in one place.
+
+### Silhouette
+
+A dense near-white core inside a breathing translucent shell, with **four tapered blades at 90
+degrees** forming a star. The blades are `0.62` blocks long against a `0.20` shell, so total extent
+is ~`0.82` versus Rasengan's `0.30` - the star outline dominates at any distance, which is the stated
+priority over surface detail.
+
+Each blade is **three stacked ribbons**, not a flat cutout. They are offset along the spin axis for
+thickness, that offset twists along the blade's length, and the offsets converge toward the tip so
+the cross-section closes to an edge. Width tapers as `(1-f)^1.45` - concave, like a real edge - and
+the trailing edge rakes backward so each point sweeps rather than sticking out as a spoke.
+
+### Motion — deliberately the opposite of Rasengan
+
+| | Rasengan | Rasen Shuriken |
+|---|---|---|
+| Outline | round, 0.30 radius | four-pointed star, 0.82 radius |
+| Rotation | 7 independent orbit rings, each its own plane/speed/direction | one **rigid** assembly on a single axis |
+| Rate | constant from frame one | **accelerates** through a wind-up, then holds |
+| Detail | smooth churning surface | rigid body, chaotic vibrating edges |
+| Impact | rounded implosion | snap-stop, blades detach outward |
+
+The wind-up uses the **analytic integral** of a smoothstep-ramped angular velocity, not
+`rate x elapsed`. Multiplying would make the blades jump backwards the instant the rate stopped
+changing, because accumulated angle would be recomputed against a different rate. Integrating keeps
+position continuous through the acceleration.
+
+Micro-vibration is scaled by `f^2` along each blade, so the root is rock solid and only the tips
+tremble - the silhouette never breaks. Each blade also flexes on its own phase, so the assembly reads
+as alive rather than a rigid cross.
+
+### Trailing wisps
+
+Traced from each tip's **own motion history**. Because the spin angle is analytic, the exact tip
+position at `t - delta` is computable, so a wisp is the real arc the tip swept - genuinely curved and
+decaying, rather than a straight line emitted outward. It also lengthens automatically as the spin
+accelerates.
+
+### Formation beats
+
+| Window | Beat |
+|---|---|
+| 0.00-0.18 | core forms as a bright point |
+| 0.18-0.55 | shell expands, ease-out |
+| 0.55-0.72 | **blades snap out** - double ease-out over a much shorter window, a mechanical unfurl |
+| 0.55+ | spin wind-up begins, screech pitch and volume ramp with it |
+| 0.72-1.00 | full rate reached, then the held loop |
+
+The screech is a continuous rise built by re-triggering a short wind sample every 3 ticks with rising
+pitch and volume - Minecraft cannot pitch-bend a playing sound, so this is the same trick vanilla
+uses for the note-block glissando.
+
+### Impact
+
+Rotation does **not** decelerate: the blade angle is frozen at its contact value, so the stop reads
+as violent. The four blades then detach and travel along the tangents they were already sweeping, on
+decaying arcs - not a uniform circular scatter. A single thin flat ring sweeps outward in the disc
+plane (a true plane-aligned ring reads as a slash; a camera-facing one would read as a bubble), with
+a sharp front-loaded flash. Mist disperses on a cubic falloff so it is gone quickly.
+
+### Performance
+
+The core, shell and four blades are **never** culled. Under load or distance, LOD reduces trailing
+wisps first (below quality 0.25 they stop), then mist (below 0.35), then blade segment count - the
+silhouette survives to the lowest setting. Mist is hard-capped at `26 x quality` streaks per
+instance. Mist and wisps are drawn as gated geometry rather than particles specifically so the count
+is bounded and fully deterministic from the seed.
+
+### Config
+
+```toml
+[rasen_shuriken]
+	damage = 60.0        # 30 hearts, vs Rasengan's 40.0
+	speed = 1.05         # blocks/tick
+	hitbox_size = 1.6    # larger: the blades extend well past the core
+	max_range = 80.0
+```
 
 ---
 

@@ -1,13 +1,11 @@
 {
   "key.rasengan.activate": "Cast Rasengan",
-
-  "death.attack.rasengan": "%1$s was struck by %2$s's Rasengan",
-  "death.attack.rasengan.player": "%1$s was struck by %2$s's Rasengan",
-
+  "death.attack.rasengan": "%1$s was torn apart by %2$s",
+  "death.attack.rasengan.player": "%1$s was torn apart by %2$s",
   "rasengan.configuration.title": "Rasengan Server Settings",
-
   "rasengan.hud.power_bar": "POWER BAR",
   "rasengan.hud.ready": "READY",
   "rasengan.hud.casting": "CASTING",
-  "rasengan.hud.reset": "RESET"
+  "rasengan.hud.reset": "RESET",
+  "key.rasengan.activate_shuriken": "Cast Rasen Shuriken"
 }

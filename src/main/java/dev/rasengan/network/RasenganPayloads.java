@@ -76,7 +76,7 @@ public final class RasenganPayloads {
      * @param cosmeticFlags  packed cosmetic caps from server config (see {@link CosmeticFlags})
      */
     public record CastStart(int casterId, long seed, int castDuration, boolean mainHand,
-                            float dirX, float dirY, float dirZ, int cosmeticFlags)
+                            float dirX, float dirY, float dirZ, int cosmeticFlags, int ability)
             implements CustomPacketPayload {
 
         public static final CustomPacketPayload.Type<CastStart> TYPE = payloadType("cast_start");
@@ -91,6 +91,7 @@ public final class RasenganPayloads {
                         ByteBufCodecs.FLOAT, CastStart::dirY,
                         ByteBufCodecs.FLOAT, CastStart::dirZ,
                         ByteBufCodecs.VAR_INT, CastStart::cosmeticFlags,
+                        ByteBufCodecs.VAR_INT, CastStart::ability,
                         CastStart::new);
 
         @Override
@@ -113,7 +114,8 @@ public final class RasenganPayloads {
      * @param x/y/z    impact position in world space
      * @param hitKind  0 = nothing hit (whiff), 1 = entity hit, 2 = terrain hit
      */
-    public record CastImpact(int casterId, double x, double y, double z, int hitKind)
+    public record CastImpact(int casterId, double x, double y, double z, int hitKind,
+                             int ability, float spinTicks)
             implements CustomPacketPayload {
 
         public static final CustomPacketPayload.Type<CastImpact> TYPE = payloadType("cast_impact");
@@ -125,6 +127,8 @@ public final class RasenganPayloads {
                         ByteBufCodecs.DOUBLE, CastImpact::y,
                         ByteBufCodecs.DOUBLE, CastImpact::z,
                         ByteBufCodecs.VAR_INT, CastImpact::hitKind,
+                        ByteBufCodecs.VAR_INT, CastImpact::ability,
+                        ByteBufCodecs.FLOAT, CastImpact::spinTicks,
                         CastImpact::new);
 
         public static final int KIND_WHIFF = 0;
@@ -178,14 +182,18 @@ public final class RasenganPayloads {
      * position, precisely so a modified client cannot assert anything. The server decides
      * whether the bar is full, whether a cast is already running, and where the strike lands.
      */
-    public record Activate() implements CustomPacketPayload {
-
-        public static final Activate INSTANCE = new Activate();
+    public record Activate(int ability) implements CustomPacketPayload {
 
         public static final CustomPacketPayload.Type<Activate> TYPE = payloadType("activate");
 
+        /**
+         * Carries only which of the two abilities was requested - an enum ordinal, validated
+         * server-side. It still asserts nothing about charge, aim, target or damage.
+         */
         public static final StreamCodec<RegistryFriendlyByteBuf, Activate> CODEC =
-                StreamCodec.unit(INSTANCE);
+                StreamCodec.composite(
+                        ByteBufCodecs.VAR_INT, Activate::ability,
+                        Activate::new);
 
         @Override
         public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {

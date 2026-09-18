@@ -1,5 +1,6 @@
 package dev.rasengan.client;
 
+import dev.rasengan.AbilityType;
 import dev.rasengan.PalmAnchor;
 import dev.rasengan.Palette;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -135,6 +136,11 @@ public final class RasenganRenderer {
 
             boolean drawSphere = intensity > 0.01F && radius > 0.005F;
 
+            // The Rasen Shuriken is a different shape with different motion, so it gets its own
+            // renderer. It still runs off this same ClientCast record, so the aura, the release
+            // handoff and the teardown are all shared - only the geometry differs.
+            boolean shuriken = cast.ability.isShuriken();
+
             // ---- Stage 4: caster body aura, as geometry ----
             // Submitted from the same loop, off the same ClientCast, in the same frame as the
             // hand sphere. They share one trigger - the server's CastStart - so they cannot
@@ -150,10 +156,9 @@ public final class RasenganRenderer {
                         feet.y - cameraPos.y,
                         feet.z - cameraPos.z);
 
-                CAMERA_LOCAL.set(
-                        (float) (cameraPos.x - feet.x),
-                        (float) (cameraPos.y - feet.y),
-                        (float) (cameraPos.z - feet.z));
+                final float auraCamX = (float) (cameraPos.x - feet.x);
+                final float auraCamY = (float) (cameraPos.y - feet.y);
+                final float auraCamZ = (float) (cameraPos.z - feet.z);
 
                 final float bodyHeight = player.getBbHeight();
                 final float bodyWidth = player.getBbWidth() * 0.5F;
@@ -164,15 +169,30 @@ public final class RasenganRenderer {
                 final float auraStrength = auraIntensity;
                 final float auraQuality = quality;
 
-                collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) ->
-                        emitBodyAura(pose, buffer, bodyHeight, bodyWidth,
-                                handX, handY, handZ,
-                                auraTime, auraStrength, auraQuality, cast.seed));
+                collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) -> {
+                    CAMERA_LOCAL.set(auraCamX, auraCamY, auraCamZ);
+                    emitBodyAura(pose, buffer, bodyHeight, bodyWidth,
+                            handX, handY, handZ,
+                            auraTime, auraStrength, auraQuality, cast.seed);
+                });
 
                 poseStack.popPose();
             }
 
             if (!drawSphere) {
+                continue;
+            }
+
+            if (shuriken) {
+                // Disc plane faces where the caster is aiming, so the star reads as a held weapon.
+                Vec3 spinAxis = player.getLookAngle();
+                float formProgress = cast.progress(gameTime, partialTick);
+                // The spin clock starts when the blades begin extending, not when the cast begins,
+                // so the wind-up is synchronised to the visual unfurl.
+                float spinTime = Math.max(0.0F, time - cast.castDuration * 0.55F);
+                ShurikenRenderer.submit(poseStack, collector, spherePos, cameraPos, spinAxis,
+                        formProgress, spinTime, intensity * distanceFactor, quality,
+                        cast.seed, false);
                 continue;
             }
 
@@ -183,11 +203,11 @@ public final class RasenganRenderer {
                     spherePos.z - cameraPos.z);
 
             // Camera position expressed in this sphere's local space, for rim shading and
-            // camera-facing ribbon orientation.
-            CAMERA_LOCAL.set(
-                    (float) (cameraPos.x - spherePos.x),
-                    (float) (cameraPos.y - spherePos.y),
-                    (float) (cameraPos.z - spherePos.z));
+            // camera-facing ribbon orientation. Captured as finals and applied INSIDE the lambda -
+            // see the class javadoc on deferred submission.
+            final float camX = (float) (cameraPos.x - spherePos.x);
+            final float camY = (float) (cameraPos.y - spherePos.y);
+            final float camZ = (float) (cameraPos.z - spherePos.z);
 
             final float fIntensity = intensity * distanceFactor;
             final float fRadius = radius;
@@ -195,6 +215,7 @@ public final class RasenganRenderer {
             final float fQuality = quality;
 
             collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) -> {
+                CAMERA_LOCAL.set(camX, camY, camZ);
                 emitShells(pose, buffer, fRadius, fTime, fIntensity, fQuality, cast.seed);
                 emitOrbitalRings(pose, buffer, cast.layers, fRadius, fTime, fIntensity, fQuality);
                 emitHelices(pose, buffer, fRadius, fTime, fIntensity, fQuality, cast.seed);
@@ -626,6 +647,17 @@ public final class RasenganRenderer {
             float quality = ClientTuning.meshQuality(cameraPos, pos);
             long seed = projectile.visualSeed();
 
+            if (projectile.ability().isShuriken()) {
+                // Spin axis is the flight direction, so the star spins about its own travel axis.
+                Vec3 velocity0 = projectile.getDeltaMovement();
+                Vec3 spinAxis = velocity0.lengthSqr() > 1.0E-6D
+                        ? velocity0.normalize()
+                        : new Vec3(0.0D, 1.0D, 0.0D);
+                ShurikenRenderer.submit(poseStack, collector, pos, cameraPos, spinAxis,
+                        1.0F, projectile.spinTicks(), distanceFactor, quality, seed, true);
+                continue;
+            }
+
             // Continue the held sphere's animation clock rather than restarting at zero, so the
             // rings and helices do not jump to a different rotation phase at the moment of release.
             // The held sphere's clock reads castDuration ticks at release, so the projectile picks
@@ -642,10 +674,9 @@ public final class RasenganRenderer {
             poseStack.pushPose();
             poseStack.translate(pos.x - cameraPos.x, pos.y - cameraPos.y, pos.z - cameraPos.z);
 
-            CAMERA_LOCAL.set(
-                    (float) (cameraPos.x - pos.x),
-                    (float) (cameraPos.y - pos.y),
-                    (float) (cameraPos.z - pos.z));
+            final float camX = (float) (cameraPos.x - pos.x);
+            final float camY = (float) (cameraPos.y - pos.y);
+            final float camZ = (float) (cameraPos.z - pos.z);
 
             final float fRadius = radius;
             final float fTime = time;
@@ -659,6 +690,7 @@ public final class RasenganRenderer {
             final float vz = (float) -velocity.z;
 
             collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) -> {
+                CAMERA_LOCAL.set(camX, camY, camZ);
                 emitShells(pose, buffer, fRadius, fTime, fIntensity, fQuality, seed);
                 emitOrbitalRings(pose, buffer, layers, fRadius, fTime, fIntensity, fQuality);
                 emitHelices(pose, buffer, fRadius, fTime, fIntensity, fQuality, seed);
@@ -695,20 +727,40 @@ public final class RasenganRenderer {
             }
 
             Vec3 pos = impact.pos();
+
+            if (impact.ability().isShuriken()) {
+                // Derive the disc plane from the flight direction: caster eye -> impact point.
+                // Reconstructing it avoids sending an axis vector in every impact packet.
+                Vec3 axis = new Vec3(0.0D, 1.0D, 0.0D);
+                Entity caster = Minecraft.getInstance().level == null ? null
+                        : Minecraft.getInstance().level.getEntity(impact.casterId());
+                if (caster != null) {
+                    Vec3 fromCaster = pos.subtract(caster.getEyePosition());
+                    if (fromCaster.lengthSqr() > 1.0E-4D) {
+                        axis = fromCaster.normalize();
+                    }
+                }
+                ShurikenRenderer.submitImpact(poseStack, collector, pos, cameraPos, axis,
+                        age, impact.spinTicks(), distanceFactor,
+                        ClientTuning.meshQuality(cameraPos, pos), impact.seed());
+                continue;
+            }
+
             poseStack.pushPose();
             poseStack.translate(pos.x - cameraPos.x, pos.y - cameraPos.y, pos.z - cameraPos.z);
 
-            CAMERA_LOCAL.set(
-                    (float) (cameraPos.x - pos.x),
-                    (float) (cameraPos.y - pos.y),
-                    (float) (cameraPos.z - pos.z));
+            final float camX = (float) (cameraPos.x - pos.x);
+            final float camY = (float) (cameraPos.y - pos.y);
+            final float camZ = (float) (cameraPos.z - pos.z);
 
             final float fAge = age;
             final float fDistance = distanceFactor;
             final long seed = impact.seed();
 
-            collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) ->
-                    emitImpact(pose, buffer, fAge, 1.0F, fDistance, seed));
+            collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) -> {
+                CAMERA_LOCAL.set(camX, camY, camZ);
+                emitImpact(pose, buffer, fAge, 1.0F, fDistance, seed);
+            });
 
             poseStack.popPose();
         }

@@ -1,6 +1,7 @@
 package dev.rasengan.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.rasengan.AbilityType;
 import dev.rasengan.network.RasenganPayloads;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -27,6 +28,13 @@ public final class RasenganKeys {
             GLFW.GLFW_KEY_R,
             KeyMapping.Category.GAMEPLAY);
 
+    /** Rasen Shuriken, default G. */
+    public static final KeyMapping ACTIVATE_SHURIKEN = new KeyMapping(
+            "key.rasengan.activate_shuriken",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_G,
+            KeyMapping.Category.GAMEPLAY);
+
     /** Minimum client ticks between outgoing activation packets. */
     private static final int SEND_INTERVAL_TICKS = 5;
 
@@ -36,6 +44,7 @@ public final class RasenganKeys {
 
     public static void register(RegisterKeyMappingsEvent event) {
         event.register(ACTIVATE);
+        event.register(ACTIVATE_SHURIKEN);
     }
 
     /** Called once per client tick. */
@@ -44,11 +53,14 @@ public final class RasenganKeys {
             cooldown--;
         }
 
-        boolean pressed = false;
+        AbilityType requested = null;
         while (ACTIVATE.consumeClick()) {
-            pressed = true;
+            requested = AbilityType.RASENGAN;
         }
-        if (!pressed || minecraft.player == null || minecraft.level == null) {
+        while (ACTIVATE_SHURIKEN.consumeClick()) {
+            requested = AbilityType.RASEN_SHURIKEN;
+        }
+        if (requested == null || minecraft.player == null || minecraft.level == null) {
             return;
         }
         if (cooldown > 0) {
@@ -56,6 +68,6 @@ public final class RasenganKeys {
         }
         cooldown = SEND_INTERVAL_TICKS;
 
-        ClientPacketDistributor.sendToServer(RasenganPayloads.Activate.INSTANCE);
+        ClientPacketDistributor.sendToServer(new RasenganPayloads.Activate(requested.id()));
     }
 }

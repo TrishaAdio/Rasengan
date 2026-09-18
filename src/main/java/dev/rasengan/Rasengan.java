@@ -98,7 +98,7 @@ public final class Rasengan {
         registrar.playToServer(
                 RasenganPayloads.Activate.TYPE,
                 RasenganPayloads.Activate.CODEC,
-                (payload, context) -> ServerCastManager.onActivateRequest(context));
+                (payload, context) -> ServerCastManager.onActivateRequest(context, payload.ability()));
     }
 
     /**

@@ -54,6 +54,12 @@ public final class RasenganConfig {
         public final ModConfigSpec.DoubleValue environmentDamageStrength;
         public final ModConfigSpec.BooleanValue environmentDropsItems;
 
+        // ---- Rasen Shuriken ----
+        public final ModConfigSpec.DoubleValue shurikenDamage;
+        public final ModConfigSpec.DoubleValue shurikenSpeed;
+        public final ModConfigSpec.DoubleValue shurikenHitboxSize;
+        public final ModConfigSpec.DoubleValue shurikenMaxRange;
+
         // ---- Cosmetic caps (synced to clients) ----
         public final ModConfigSpec.DoubleValue particleDensity;
         public final ModConfigSpec.DoubleValue auraIntensity;
@@ -134,6 +140,28 @@ public final class RasenganConfig {
                     .comment("Maximum distance in blocks the sphere may travel before it fizzles out.")
                     .defineInRange("max_range", 64.0D, 4.0D, 256.0D);
 
+            builder.pop().push("rasen_shuriken");
+
+            shurikenDamage = builder
+                    .comment("Damage of one direct Rasen Shuriken hit, in health points.",
+                            "Default 60.0 = 30 hearts. Higher than Rasengan by design: it is the",
+                            "more advanced technique and costs the same full POWER BAR.")
+                    .defineInRange("damage", 60.0D, 0.0D, 10_000.0D);
+
+            shurikenSpeed = builder
+                    .comment("Flight speed in blocks per tick. Slightly faster than Rasengan,",
+                            "but still slow enough to read the spinning blades.")
+                    .defineInRange("speed", 1.05D, 0.1D, 10.0D);
+
+            shurikenHitboxSize = builder
+                    .comment("Radius in blocks of the swept hit volume. Larger than Rasengan's",
+                            "because the blades visibly extend well past the core.")
+                    .defineInRange("hitbox_size", 1.6D, 0.1D, 8.0D);
+
+            shurikenMaxRange = builder
+                    .comment("Maximum distance in blocks before it fizzles out.")
+                    .defineInRange("max_range", 80.0D, 4.0D, 256.0D);
+
             builder.pop().push("environment");
 
             blockDamageEnabled = builder
@@ -189,6 +217,22 @@ public final class RasenganConfig {
 
     public static double damage() {
         return SERVER.rasenganDamage.get();
+    }
+
+    public static double damage(dev.rasengan.AbilityType ability) {
+        return ability.isShuriken() ? SERVER.shurikenDamage.get() : SERVER.rasenganDamage.get();
+    }
+
+    public static double hitboxSize(dev.rasengan.AbilityType ability) {
+        return ability.isShuriken() ? SERVER.shurikenHitboxSize.get() : SERVER.hitboxSize.get();
+    }
+
+    public static double projectileSpeed(dev.rasengan.AbilityType ability) {
+        return ability.isShuriken() ? SERVER.shurikenSpeed.get() : SERVER.projectileSpeed.get();
+    }
+
+    public static double projectileMaxRange(dev.rasengan.AbilityType ability) {
+        return ability.isShuriken() ? SERVER.shurikenMaxRange.get() : SERVER.projectileMaxRange.get();
     }
 
     public static double range() {

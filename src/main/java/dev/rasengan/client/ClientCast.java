@@ -1,5 +1,6 @@
 package dev.rasengan.client;
 
+import dev.rasengan.AbilityType;
 import dev.rasengan.client.OrbitMath.Layer;
 import net.minecraft.world.phys.Vec3;
 
@@ -44,6 +45,8 @@ public final class ClientCast {
     public final long seed;
     public final int castDuration;
     public final boolean mainHand;
+    /** Which technique this is, deciding which renderer draws it. */
+    public final AbilityType ability;
     public final Vec3 direction;
 
     /** Level game time at which the CastStart packet was applied. */
@@ -64,7 +67,8 @@ public final class ClientCast {
 
     public ClientCast(int casterId, long seed, int castDuration, boolean mainHand,
                       Vec3 direction, long startGameTime, int layerCount,
-                      float particleDensity, float auraIntensity) {
+                      float particleDensity, float auraIntensity, AbilityType ability) {
+        this.ability = ability;
         this.casterId = casterId;
         this.seed = seed;
         this.castDuration = Math.max(2, castDuration);

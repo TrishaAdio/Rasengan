@@ -1,5 +1,7 @@
 package dev.rasengan.server;
 
+import dev.rasengan.AbilityType;
+import dev.rasengan.PalmAnchor;
 import dev.rasengan.RasenganConfig;
 import dev.rasengan.RasenganEntities;
 import dev.rasengan.network.RasenganPayloads;
@@ -61,6 +63,9 @@ public class RasenganProjectile extends Entity {
     /** Deterministic visual seed, mirrored from the cast so the sphere looks continuous. */
     private long visualSeed;
 
+    /** Which technique this projectile is, driving both its tuning and its client visual. */
+    private AbilityType ability = AbilityType.RASENGAN;
+
     private int lifeTicks;
     private double travelled;
     private boolean resolved;
@@ -86,15 +91,17 @@ public class RasenganProjectile extends Entity {
      * @param direction unit aim vector, already validated by the server
      */
     public static RasenganProjectile launch(ServerLevel level, ServerPlayer owner,
-                                            Vec3 from, Vec3 direction, long seed) {
+                                            Vec3 from, Vec3 direction, long seed,
+                                            AbilityType ability) {
         RasenganProjectile projectile = new RasenganProjectile(RasenganEntities.PROJECTILE.get(), level);
 
         projectile.setPos(from.x, from.y, from.z);
         projectile.ownerUuid = owner.getUUID();
         projectile.ownerId = owner.getId();
         projectile.visualSeed = seed;
+        projectile.ability = ability;
 
-        double speed = RasenganConfig.projectileSpeed();
+        double speed = RasenganConfig.projectileSpeed(ability);
         projectile.setDeltaMovement(direction.normalize().scale(speed));
 
         // Face the direction of travel so any orientation-dependent visual reads correctly.
@@ -123,6 +130,7 @@ public class RasenganProjectile extends Entity {
         this.travelled = input.getDoubleOr("Travelled", 0.0D);
         this.visualSeed = input.getLongOr("VisualSeed", 0L);
         this.ownerId = input.getIntOr("OwnerId", -1);
+        this.ability = AbilityType.byId(input.getIntOr("Ability", 0));
     }
 
     @Override
@@ -131,6 +139,7 @@ public class RasenganProjectile extends Entity {
         output.putDouble("Travelled", travelled);
         output.putLong("VisualSeed", visualSeed);
         output.putInt("OwnerId", ownerId);
+        output.putInt("Ability", ability.id());
     }
 
     /** The sphere is pure energy: nothing can damage it, so it can never be destroyed early. */
@@ -165,6 +174,18 @@ public class RasenganProjectile extends Entity {
         return lifeTicks;
     }
 
+    public AbilityType ability() {
+        return ability;
+    }
+
+    /**
+     * The spin clock the client renders with: continues the held sphere's count so the rotation
+     * phase carries across the throw rather than restarting.
+     */
+    public float spinTicks() {
+        return RasenganConfig.castDurationTicks() + lifeTicks;
+    }
+
     // ------------------------------------------------------------------
     // Flight
     // ------------------------------------------------------------------
@@ -192,7 +213,7 @@ public class RasenganProjectile extends Entity {
 
         // ---- Lifetime and range limits: nothing is allowed to fly forever ----
         if (lifeTicks > RasenganConfig.projectileLifetimeTicks()
-                || travelled > RasenganConfig.projectileMaxRange()) {
+                || travelled > RasenganConfig.projectileMaxRange(ability)) {
             expire(serverLevel);
             return;
         }
@@ -213,7 +234,7 @@ public class RasenganProjectile extends Entity {
                 : intendedEnd;
 
         // ---- 2. Continuous entity sweep along that segment ----
-        double radius = RasenganConfig.hitboxSize();
+        double radius = RasenganConfig.hitboxSize(ability);
         EntityHit entityHit = sweepForEntity(serverLevel, start, segmentEnd, radius);
 
         if (entityHit != null) {
@@ -359,7 +380,7 @@ public class RasenganProjectile extends Entity {
         // full impact animation always plays.
         ServerCastManager.broadcastImpact(level, point,
                 owner != null ? owner.getId() : getId(),
-                RasenganPayloads.CastImpact.KIND_ENTITY);
+                RasenganPayloads.CastImpact.KIND_ENTITY, ability, spinTicks());
 
         if (RasenganConfig.SERVER.blockDamageEnabled.get()) {
             ServerCastManager.applyEnvironmentDamage(level, owner, point);
@@ -377,7 +398,7 @@ public class RasenganProjectile extends Entity {
         ServerPlayer owner = owner(level);
         ServerCastManager.broadcastImpact(level, point,
                 owner != null ? owner.getId() : getId(),
-                RasenganPayloads.CastImpact.KIND_TERRAIN);
+                RasenganPayloads.CastImpact.KIND_TERRAIN, ability, spinTicks());
 
         if (RasenganConfig.SERVER.blockDamageEnabled.get()) {
             ServerCastManager.applyEnvironmentDamage(level, owner, point);
@@ -395,7 +416,7 @@ public class RasenganProjectile extends Entity {
         ServerPlayer owner = owner(level);
         ServerCastManager.broadcastImpact(level, position(),
                 owner != null ? owner.getId() : getId(),
-                RasenganPayloads.CastImpact.KIND_WHIFF);
+                RasenganPayloads.CastImpact.KIND_WHIFF, ability, spinTicks());
         cleanUp();
     }
 
@@ -411,7 +432,7 @@ public class RasenganProjectile extends Entity {
         if (RasenganConfig.SERVER.bypassInvulnerabilityFrames.get()) {
             target.invulnerableTime = 0;
         }
-        target.hurtServer(level, source, (float) RasenganConfig.damage());
+        target.hurtServer(level, source, (float) RasenganConfig.damage(ability));
     }
 
     /** Removes the entity immediately so no scheduled state outlives the impact. */

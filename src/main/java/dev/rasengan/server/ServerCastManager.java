@@ -1,5 +1,6 @@
 package dev.rasengan.server;
 
+import dev.rasengan.AbilityType;
 import dev.rasengan.PowerState;
 import dev.rasengan.Rasengan;
 import dev.rasengan.PalmAnchor;
@@ -74,10 +75,12 @@ public final class ServerCastManager {
      * Handles a client activation request. Runs on the network thread, so the actual work is
      * pushed onto the server thread via {@link IPayloadContext#enqueueWork(Runnable)}.
      */
-    public static void onActivateRequest(IPayloadContext context) {
+    public static void onActivateRequest(IPayloadContext context, int abilityId) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer player) {
-                tryActivate(player);
+                // byId() clamps to a valid enum value, so a malformed ordinal cannot select
+                // anything the server does not recognise.
+                tryActivate(player, AbilityType.byId(abilityId));
             }
         });
     }
@@ -87,7 +90,7 @@ public final class ServerCastManager {
      *
      * @return true if a cast actually started. Only a true result announces or resets the bar.
      */
-    public static boolean tryActivate(ServerPlayer player) {
+    public static boolean tryActivate(ServerPlayer player, AbilityType ability) {
         PowerData data = ServerPowerManager.data(player);
 
         // ---- Validation gate. Every one of these is a silent rejection: no chat, no reset. ----
@@ -110,7 +113,8 @@ public final class ServerCastManager {
         boolean mainHand = true;
         Vec3 direction = player.getLookAngle().normalize();
 
-        ACTIVE.put(player.getUUID(), new ActiveCast(player.getUUID(), seed, duration, mainHand, direction));
+        ACTIVE.put(player.getUUID(),
+                new ActiveCast(player.getUUID(), seed, duration, mainHand, direction, ability));
 
         // The bar resets the instant the cast is accepted, exactly as specified.
         data.resetCharge();
@@ -132,13 +136,14 @@ public final class ServerCastManager {
                 (float) direction.x,
                 (float) direction.y,
                 (float) direction.z,
-                cosmetics));
+                cosmetics,
+                ability.id()));
 
         // Global announcement - server side, once per successful cast, to everyone online
         // including the caster.
         if (RasenganConfig.announceCast()) {
             MinecraftServer server = ((ServerLevel) player.level()).getServer();
-            server.getPlayerList().broadcastSystemMessage(castAnnouncement(player), false);
+            server.getPlayerList().broadcastSystemMessage(castAnnouncement(player, ability), false);
         }
         return true;
     }
@@ -157,13 +162,13 @@ public final class ServerCastManager {
      * the two visually distinct and both legible against light and dark chat backgrounds. The whole
      * message is bold.
      */
-    public static Component castAnnouncement(ServerPlayer player) {
+    public static Component castAnnouncement(ServerPlayer player, AbilityType ability) {
         return Component.empty()
                 .append(Component.literal(player.getGameProfile().name())
                         .withStyle(style -> style.withColor(Palette.HIGHLIGHT).withBold(true)))
                 .append(Component.literal(" casted ")
                         .withStyle(style -> style.withColor(Palette.CORE).withBold(true)))
-                .append(Component.literal("Rasengan")
+                .append(Component.literal(ability.displayName())
                         .withStyle(style -> style.withColor(Palette.CYAN).withBold(true)));
     }
 
@@ -234,7 +239,7 @@ public final class ServerCastManager {
         // moment of release.
         Vec3 origin = PalmAnchor.palmPosition(player, cast.mainHand, 1.0F);
 
-        RasenganProjectile.launch(level, player, origin, direction, cast.seed);
+        RasenganProjectile.launch(level, player, origin, direction, cast.seed, cast.ability);
     }
 
     /**
@@ -336,9 +341,10 @@ public final class ServerCastManager {
      * <p>Called by {@link RasenganProjectile} on contact and on expiry. Kept here so both the
      * cast lifecycle and the projectile use one identical broadcast path.
      */
-    public static void broadcastImpact(ServerLevel level, Vec3 point, int casterId, int hitKind) {
+    public static void broadcastImpact(ServerLevel level, Vec3 point, int casterId, int hitKind,
+                                       AbilityType ability, float spinTicks) {
         broadcastNearPos(level, point, new RasenganPayloads.CastImpact(
-                casterId, point.x, point.y, point.z, hitKind));
+                casterId, point.x, point.y, point.z, hitKind, ability.id(), spinTicks));
     }
 
     /**

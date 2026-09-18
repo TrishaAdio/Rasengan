@@ -1,5 +1,6 @@
 package dev.rasengan.client;
 
+import dev.rasengan.AbilityType;
 import dev.rasengan.network.RasenganPayloads;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,7 +29,8 @@ public final class ClientImpactTracker {
     private static final int MAX_IMPACTS = 32;
 
     /** One playing blast. */
-    public record Impact(Vec3 pos, long startGameTime, long seed, int hitKind) {
+    public record Impact(Vec3 pos, long startGameTime, long seed, int hitKind,
+                         AbilityType ability, float spinTicks, int casterId) {
 
         /** Ticks since the blast began, including the frame's partial tick. */
         public float age(long gameTime, float partialTick) {
@@ -63,7 +65,10 @@ public final class ClientImpactTracker {
                 new Vec3(payload.x(), payload.y(), payload.z()),
                 gameTime,
                 seed,
-                payload.hitKind()));
+                payload.hitKind(),
+                AbilityType.byId(payload.ability()),
+                payload.spinTicks(),
+                payload.casterId()));
     }
 
     /** Drops finished blasts. */
