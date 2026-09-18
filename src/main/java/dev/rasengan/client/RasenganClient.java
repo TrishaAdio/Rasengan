@@ -1,10 +1,13 @@
 package dev.rasengan.client;
 
 import dev.rasengan.Rasengan;
+import dev.rasengan.RasenganEntities;
 import dev.rasengan.RasenganParticles;
 import dev.rasengan.network.RasenganPayloads;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.entity.NoopRenderer;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
@@ -30,6 +33,7 @@ public final class RasenganClient {
         modBus.addListener(RasenganClient::registerGuiLayers);
         modBus.addListener(RasenganKeys::register);
         modBus.addListener(RasenganClient::registerParticleProviders);
+        modBus.addListener(RasenganClient::registerEntityRenderers);
 
         // ---- Game bus: per-frame and per-tick work ----
         gameBus.addListener(RasenganRenderer::onSubmitGeometry);
@@ -66,6 +70,19 @@ public final class RasenganClient {
     private static void registerGuiLayers(RegisterGuiLayersEvent event) {
         // Above the hotbar so the bar is never drawn underneath vanilla HUD elements.
         event.registerAbove(VanillaGuiLayers.HOTBAR, Rasengan.id("power_bar"), PowerBarHud.INSTANCE);
+    }
+
+    /**
+     * Every entity type must have a renderer registered or the client errors on spawn.
+     *
+     * <p>A {@link NoopRenderer} is registered deliberately: the projectile's entire appearance is
+     * drawn by {@link RasenganRenderer} through {@code SubmitCustomGeometryEvent}, which is the
+     * same code path - and the same additive render type - already used for the held sphere. That
+     * keeps one implementation of the energy sphere rather than a second one inside an
+     * EntityRenderer, and means the in-flight visual is identical to the in-hand visual.
+     */
+    private static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
+        event.registerEntityRenderer(RasenganEntities.PROJECTILE.get(), NoopRenderer::new);
     }
 
     private static void registerParticleProviders(RegisterParticleProvidersEvent event) {

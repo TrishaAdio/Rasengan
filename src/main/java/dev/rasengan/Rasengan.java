@@ -1,9 +1,11 @@
 package dev.rasengan;
 
 import dev.rasengan.network.RasenganPayloads;
+import dev.rasengan.server.ChargeCommand;
 import dev.rasengan.server.RasenganAttachments;
 import dev.rasengan.server.ServerCastManager;
 import dev.rasengan.server.ServerPowerManager;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.minecraft.resources.Identifier;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -36,6 +38,7 @@ public final class Rasengan {
 
         RasenganAttachments.REGISTRY.register(modBus);
         RasenganParticles.REGISTRY.register(modBus);
+        RasenganEntities.REGISTRY.register(modBus);
 
         modBus.addListener(Rasengan::registerPayloads);
 
@@ -45,6 +48,7 @@ public final class Rasengan {
         IEventBus gameBus = NeoForge.EVENT_BUS;
         ServerPowerManager.register(gameBus);
         ServerCastManager.register(gameBus);
+        gameBus.addListener(Rasengan::registerCommands);
 
         if (FMLEnvironment.getDist().isClient()) {
             dev.rasengan.client.RasenganClient.init(modBus, gameBus);
@@ -53,6 +57,14 @@ public final class Rasengan {
 
     public static Identifier id(String path) {
         return Identifier.fromNamespaceAndPath(MOD_ID, path);
+    }
+
+    /**
+     * Registers {@code /chargeit}. Commands are parsed and executed entirely on the server, which
+     * is what makes the Creative-mode check untamperable.
+     */
+    private static void registerCommands(RegisterCommandsEvent event) {
+        ChargeCommand.register(event.getDispatcher());
     }
 
     /**

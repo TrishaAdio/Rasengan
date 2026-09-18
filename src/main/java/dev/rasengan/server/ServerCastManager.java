@@ -28,6 +28,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.IEventBus;
+import org.jspecify.annotations.Nullable;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -37,12 +38,11 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  * Server-authoritative cast lifecycle: validation, timing, hit detection, damage, announcement
  * and teardown.
  *
- * <h2>Chosen release behaviour: close-range hand strike (thrust)</h2>
- * The sphere is held in the caster's hand for the whole cast. On release the caster thrusts it
- * forward along the aim direction captured at activation. The server then sweeps a sphere of
- * radius {@code hitbox_size} along that direction out to {@code range} blocks and takes the
- * first entity or block it meets. There is no projectile entity: the strike resolves in a
- * single tick, which is what makes "one immediate hit, never repeated" easy to guarantee.
+ * <h2>Release behaviour: thrown projectile</h2>
+ * The sphere forms and is held in the caster's hand for the duration of the cast. On release it is
+ * launched as a {@link RasenganProjectile} entity along the caster's aim vector. That entity owns
+ * its own flight and collision and applies the single authoritative hit on first contact, so this
+ * class is responsible for the cast timeline and the launch, not for damage.
  *
  * <h2>Why the client cannot cheat</h2>
  * The client sends only {@link RasenganPayloads.Activate}, which has no fields. Charge level,
@@ -188,97 +188,29 @@ public final class ServerCastManager {
     // ------------------------------------------------------------------
 
     /**
-     * Sweeps the strike volume and applies damage exactly once.
+     * Releases the sphere as a thrown projectile.
      *
-     * <p>The sweep walks the aim ray in small steps and, at each step, queries entities inside a
-     * sphere of {@code hitbox_size}. The first valid entity wins; the loop then stops. Because
-     * this runs in one tick and the cast is removed immediately afterwards, there is no path
-     * that can apply the damage twice.
+     * <p>This method no longer resolves damage itself. It hands ownership of hit detection to a
+     * {@link RasenganProjectile} entity, which sweeps its own flight path each tick and applies
+     * the single authoritative hit on first contact. The launch direction is re-read from the
+     * player at release time so the throw follows where they are actually looking, while the
+     * original activation direction remains what the cast animation was built from.
      */
     private static void resolveStrike(ServerPlayer player, ActiveCast cast) {
         ServerLevel level = (ServerLevel) player.level();
-        double range = RasenganConfig.range();
-        double radius = RasenganConfig.hitboxSize();
 
-        Vec3 origin = player.getEyePosition();
-        Vec3 dir = cast.direction;
-
-        // Stop the sweep at a wall so the strike cannot reach through terrain.
-        Vec3 rayEnd = origin.add(dir.scale(range));
-        var clip = level.clip(new net.minecraft.world.level.ClipContext(
-                origin, rayEnd,
-                net.minecraft.world.level.ClipContext.Block.COLLIDER,
-                net.minecraft.world.level.ClipContext.Fluid.NONE,
-                player));
-        double maxDistance = clip.getType() == HitResult.Type.BLOCK
-                ? origin.distanceTo(clip.getLocation())
-                : range;
-
-        LivingEntity target = null;
-        Vec3 impact = origin.add(dir.scale(maxDistance));
-
-        final double step = Math.max(0.25D, radius * 0.5D);
-        for (double travelled = 0.0D; travelled <= maxDistance; travelled += step) {
-            Vec3 probe = origin.add(dir.scale(travelled));
-            AABB box = new AABB(
-                    probe.x - radius, probe.y - radius, probe.z - radius,
-                    probe.x + radius, probe.y + radius, probe.z + radius);
-
-            List<LivingEntity> candidates = level.getEntitiesOfClass(LivingEntity.class, box,
-                    e -> e != player && e.isAlive() && !e.isSpectator() && e.isPickable());
-
-            if (!candidates.isEmpty()) {
-                LivingEntity closest = null;
-                double best = Double.MAX_VALUE;
-                for (LivingEntity candidate : candidates) {
-                    double d = candidate.position().distanceToSqr(probe);
-                    if (d < best) {
-                        best = d;
-                        closest = candidate;
-                    }
-                }
-                target = closest;
-                impact = target != null ? target.getBoundingBox().getCenter() : probe;
-                break;
-            }
+        Vec3 direction = player.getLookAngle().normalize();
+        if (direction.lengthSqr() < 1.0E-6D) {
+            direction = cast.direction;
         }
 
-        int hitKind = RasenganPayloads.CastImpact.KIND_WHIFF;
+        // Launch from just in front of the eyes along the aim vector, so the sphere leaves the
+        // hand rather than spawning inside the player's own hitbox.
+        Vec3 origin = player.getEyePosition()
+                .add(direction.scale(0.45D))
+                .subtract(0.0D, 0.15D, 0.0D);
 
-        if (target != null) {
-            hitKind = RasenganPayloads.CastImpact.KIND_ENTITY;
-            applyHit(level, player, target);
-        } else if (clip.getType() == HitResult.Type.BLOCK) {
-            hitKind = RasenganPayloads.CastImpact.KIND_TERRAIN;
-            impact = clip.getLocation();
-        }
-
-        // Impact packet goes out regardless of whether the target survived, so the full
-        // impact animation always plays.
-        broadcastNearPos(level, impact, new RasenganPayloads.CastImpact(
-                player.getId(), impact.x, impact.y, impact.z, hitKind));
-
-        if (RasenganConfig.SERVER.blockDamageEnabled.get()
-                && hitKind != RasenganPayloads.CastImpact.KIND_WHIFF) {
-            applyEnvironmentDamage(level, player, impact);
-        }
-    }
-
-    /** One immediate hit for the full configured amount. */
-    private static void applyHit(ServerLevel level, ServerPlayer caster, LivingEntity target) {
-        Holder<DamageType> holder = level.registryAccess()
-                .lookupOrThrow(Registries.DAMAGE_TYPE)
-                .getOrThrow(DAMAGE_TYPE);
-
-        DamageSource source = new DamageSource(holder, caster, caster);
-
-        // Clear the immunity window so the full amount always lands even if the target was
-        // struck moments earlier by something else.
-        if (RasenganConfig.SERVER.bypassInvulnerabilityFrames.get()) {
-            target.invulnerableTime = 0;
-        }
-
-        target.hurtServer(level, source, (float) RasenganConfig.damage());
+        RasenganProjectile.launch(level, player, origin, direction, cast.seed);
     }
 
     /**
@@ -290,7 +222,7 @@ public final class ServerCastManager {
      * explosion resistance is at or below the configured strength, which is exactly what the
      * config comment promises.
      */
-    private static void applyEnvironmentDamage(ServerLevel level, ServerPlayer caster, Vec3 at) {
+    public static void applyEnvironmentDamage(ServerLevel level, @Nullable ServerPlayer caster, Vec3 at) {
         double radius = RasenganConfig.SERVER.environmentDamageRadius.get();
         double strength = RasenganConfig.SERVER.environmentDamageStrength.get();
         if (radius <= 0.0D) {
@@ -372,6 +304,17 @@ public final class ServerCastManager {
 
     private static void broadcastNear(ServerPlayer player, RasenganPayloads.CastEnd payload) {
         broadcastNearPos((ServerLevel) player.level(), player.position(), payload);
+    }
+
+    /**
+     * Broadcasts an impact at {@code point} to every nearby client.
+     *
+     * <p>Called by {@link RasenganProjectile} on contact and on expiry. Kept here so both the
+     * cast lifecycle and the projectile use one identical broadcast path.
+     */
+    public static void broadcastImpact(ServerLevel level, Vec3 point, int casterId, int hitKind) {
+        broadcastNearPos(level, point, new RasenganPayloads.CastImpact(
+                casterId, point.x, point.y, point.z, hitKind));
     }
 
     /**

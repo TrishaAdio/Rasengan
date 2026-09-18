@@ -47,9 +47,6 @@ public final class ClientEffects {
         }
 
         float density = cast.particleDensity * distanceFactor;
-        if (density <= 0.0F) {
-            return;
-        }
 
         // Seeded per tick: identical on every client, different every tick.
         RandomSource random = RandomSource.create(cast.seed * 31L + gameTime);
@@ -59,6 +56,20 @@ public final class ClientEffects {
 
         if (cast.isCancelled() || released) {
             return; // aura and sphere emissions stop cleanly the moment the cast ends
+        }
+
+        // ---- Stage 4: caster body aura ----
+        // Emitted FIRST and gated on its own intensity, deliberately. It used to sit at the end
+        // of this method behind the sphere's `density <= 0` early return, which meant a server
+        // running particle_density = 0 - or any path that zeroed the sphere density - silently
+        // suppressed the aura while the sphere still drew. The aura now stands on its own.
+        float auraIntensity = cast.auraIntensity * ClientTuning.auraScale() * distanceFactor;
+        if (auraIntensity > 0.0F) {
+            emitBodyAura(level, player, cast, palm, random, auraIntensity);
+        }
+
+        if (density <= 0.0F) {
+            return; // sphere particles only; the aura above has already been emitted
         }
 
         // ---- Stage 1: inward-pulling intake motes ----
@@ -98,11 +109,6 @@ public final class ClientEffects {
                         (random.nextDouble() - 0.5D) * 0.05D);
                 spawn(level, RasenganParticles.WISP.get(), from, velocity);
             }
-        }
-
-        // ---- Stage 4: caster body aura ----
-        if (cast.auraIntensity > 0.0F) {
-            emitBodyAura(level, player, cast, palm, random, cast.auraIntensity * distanceFactor);
         }
     }
 

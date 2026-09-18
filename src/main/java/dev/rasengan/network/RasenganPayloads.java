@@ -200,11 +200,17 @@ public final class RasenganPayloads {
     public static final class CosmeticFlags {
         private CosmeticFlags() {}
 
-        /** particleDensity and auraIntensity quantised to 0..100 each, plus the effect cap. */
+        /**
+         * particleDensity and auraIntensity quantised to 0..100 each, plus the effect cap.
+         *
+         * <p>The cap is stored as {@code maxEffects - 1} in 6 bits. Storing it raw would overflow:
+         * the configured maximum is 64, and {@code 64 & 0x3F} is 0, which previously collapsed a
+         * server's 64-effect cap down to 1 and silently suppressed almost every effect.
+         */
         public static int pack(double particleDensity, double auraIntensity, int maxEffects) {
             int pd = clamp((int) Math.round(particleDensity * 100.0D / 3.0D), 0, 100);
             int ai = clamp((int) Math.round(auraIntensity * 100.0D / 3.0D), 0, 100);
-            int me = clamp(maxEffects, 1, 64);
+            int me = clamp(maxEffects, 1, 64) - 1;
             return (pd & 0x7F) | ((ai & 0x7F) << 7) | ((me & 0x3F) << 14);
         }
 
@@ -217,7 +223,7 @@ public final class RasenganPayloads {
         }
 
         public static int maxEffects(int packed) {
-            return Math.max(1, (packed >>> 14) & 0x3F);
+            return (((packed >>> 14) & 0x3F) + 1);
         }
 
         private static int clamp(int v, int min, int max) {

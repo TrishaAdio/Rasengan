@@ -5,11 +5,13 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.rasengan.RasenganConfig;
 import dev.rasengan.client.OrbitMath.Layer;
 import dev.rasengan.client.SphereMesh.Tri;
+import dev.rasengan.server.RasenganProjectile;
 import java.util.List;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
@@ -73,10 +75,13 @@ public final class RasenganRenderer {
     private static final Vector3f TMP_D = new Vector3f();
     private static final Vector3f CAMERA_LOCAL = new Vector3f();
 
+    // Dedicated basis for the projectile trail. These must NOT reuse TMP_A/B/C, because
+    // emitRibbonSegment clobbers those on every segment it draws.
+    private static final Vector3f TRAIL_AXIS = new Vector3f();
+    private static final Vector3f TRAIL_U = new Vector3f();
+    private static final Vector3f TRAIL_V = new Vector3f();
+
     public static void onSubmitGeometry(SubmitCustomGeometryEvent event) {
-        if (ClientCastTracker.isEmpty()) {
-            return;
-        }
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
         if (level == null) {
@@ -90,6 +95,14 @@ public final class RasenganRenderer {
 
         PoseStack poseStack = event.getPoseStack();
         SubmitNodeCollector collector = event.getSubmitNodeCollector();
+
+        // Projectiles are independent of ClientCastTracker: one can still be in flight after the
+        // cast record has expired, so this must run even when there are no active casts.
+        renderProjectiles(level, poseStack, collector, cameraPos, partialTick, maxDistance);
+
+        if (ClientCastTracker.isEmpty()) {
+            return;
+        }
 
         for (ClientCast cast : ClientCastTracker.active()) {
             Entity entity = level.getEntity(cast.casterId);
@@ -112,6 +125,45 @@ public final class RasenganRenderer {
 
             boolean drawSphere = intensity > 0.01F && radius > 0.005F;
             boolean drawImpact = impactAge >= 0.0F && impactAge <= ClientCast.IMPACT_TICKS;
+
+            // ---- Stage 4: caster body aura, as geometry ----
+            // Submitted from the same loop, off the same ClientCast, in the same frame as the
+            // hand sphere. They share one trigger - the server's CastStart - so they cannot
+            // start at different times or appear independently of one another. Previously the
+            // aura existed only as particles on a separate code path, which is why it could go
+            // missing while the sphere still drew.
+            float auraIntensity = cast.auraIntensity * intensity * distanceFactor;
+            if (auraIntensity > 0.01F && impactAge < 0.0F && !cast.isCancelled()) {
+                Vec3 feet = HandAnchor.interpolatedPosition(player, partialTick);
+                Vec3 palm = HandAnchor.palmPosition(player, cast, partialTick);
+
+                poseStack.pushPose();
+                poseStack.translate(
+                        feet.x - cameraPos.x,
+                        feet.y - cameraPos.y,
+                        feet.z - cameraPos.z);
+
+                CAMERA_LOCAL.set(
+                        (float) (cameraPos.x - feet.x),
+                        (float) (cameraPos.y - feet.y),
+                        (float) (cameraPos.z - feet.z));
+
+                final float bodyHeight = player.getBbHeight();
+                final float bodyWidth = player.getBbWidth() * 0.5F;
+                final float handX = (float) (palm.x - feet.x);
+                final float handY = (float) (palm.y - feet.y);
+                final float handZ = (float) (palm.z - feet.z);
+                final float auraTime = time;
+                final float auraStrength = auraIntensity;
+                final float auraQuality = quality;
+
+                collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) ->
+                        emitBodyAura(pose, buffer, bodyHeight, bodyWidth,
+                                handX, handY, handZ,
+                                auraTime, auraStrength, auraQuality, cast.seed));
+
+                poseStack.popPose();
+            }
 
             if (!drawSphere && !drawImpact) {
                 continue;
@@ -368,6 +420,295 @@ public final class RasenganRenderer {
                     0.018F * radius * (0.6F + strength),
                     Palette.HIGHLIGHT, 0.85F * intensity * strength);
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Stage 4: caster body aura (geometry)
+    // ------------------------------------------------------------------
+
+    /**
+     * The body aura, drawn as real geometry in local space centred on the caster's feet.
+     *
+     * <p>Kept deliberately thin and sparse: it silhouettes the player rather than wrapping them, so
+     * skin, armour, held items and anything behind them all stay readable. Every element is a
+     * continuous function of time, so the aura breathes rather than flickering.
+     *
+     * @param height body height in blocks
+     * @param width  body half-width in blocks
+     * @param handX/handY/handZ casting palm position relative to the feet
+     */
+    private static void emitBodyAura(PoseStack.Pose pose, VertexConsumer buffer,
+                                     float height, float width,
+                                     float handX, float handY, float handZ,
+                                     float time, float intensity, float quality, long seed) {
+
+        // ---- Rising flame-like streamers ----
+        // Helical ribbons climbing the body from the feet, each on its own phase and speed, so
+        // they read as energy licking upward rather than as static decoration.
+        int streamers = quality >= 0.5F ? 7 : 4;
+        int segments = Math.max(6, Math.round(14 * quality));
+
+        for (int s = 0; s < streamers; s++) {
+            float phase = s * (float) (Math.TAU / streamers) + (seed % 360L) * 0.0175F;
+            float climbRate = 0.055F + 0.020F * ((s * 37) % 5) / 4.0F;
+            float twist = (s % 2 == 0) ? 1.0F : -1.0F;
+
+            // Each streamer's own vertical scroll, wrapped, so they rise continuously.
+            float scroll = positiveFraction(time * climbRate + s * 0.37F);
+
+            for (int i = 0; i < segments; i++) {
+                float f0 = i / (float) segments;
+                float f1 = (i + 1) / (float) segments;
+
+                // Local height along the streamer, offset by the scroll and wrapped.
+                float y0 = positiveFraction(f0 + scroll);
+                float y1 = positiveFraction(f1 + scroll);
+                if (y1 < y0) {
+                    continue; // this segment wraps around the top; skip rather than stretch it
+                }
+
+                float a0 = phase + twist * y0 * 5.2F + time * 0.06F * twist;
+                float a1 = phase + twist * y1 * 5.2F + time * 0.06F * twist;
+
+                // Radius bulges at mid-torso and pinches at feet and head.
+                float r0 = width * (0.95F + 0.35F * (float) Math.sin(y0 * Math.PI));
+                float r1 = width * (0.95F + 0.35F * (float) Math.sin(y1 * Math.PI));
+
+                P0.set((float) Math.cos(a0) * r0, y0 * height, (float) Math.sin(a0) * r0);
+                P1.set((float) Math.cos(a1) * r1, y1 * height, (float) Math.sin(a1) * r1);
+
+                TANGENT.set(P1).sub(P0);
+                if (TANGENT.lengthSquared() < 1.0E-10F) {
+                    continue;
+                }
+                TANGENT.normalize();
+
+                // Fade in near the feet, out near the head: a wisp that forms and dissolves.
+                float taper = (float) Math.sin(Math.PI * y0);
+                float alpha = 0.38F * intensity * taper;
+
+                emitRibbonSegment(pose, buffer, P0, P1, TANGENT,
+                        0.022F * (0.6F + taper),
+                        Palette.lerp(Palette.CYAN, Palette.DEEP_CYAN, y0),
+                        alpha);
+            }
+        }
+
+        // ---- Energy currents converging on the casting hand ----
+        // These visually explain where the sphere's power is coming from.
+        int currents = quality >= 0.5F ? 5 : 3;
+        for (int c = 0; c < currents; c++) {
+            float gate = OrbitMath.noise(c * 5.7F, c * 2.3F, c * 4.1F, time * 1.6F, (seed % 700L) * 0.001F);
+            if (gate < 0.45F) {
+                continue;
+            }
+            float strength = (gate - 0.45F) / 0.55F;
+
+            float angle = c * (float) (Math.TAU / currents) + time * 0.05F;
+            float baseHeight = 0.30F + 0.55F * positiveFraction(c * 0.41F + time * 0.03F);
+
+            P0.set((float) Math.cos(angle) * width * 1.25F,
+                    baseHeight * height,
+                    (float) Math.sin(angle) * width * 1.25F);
+
+            // Pull most of the way toward the hand, not all the way, so the sphere stays the
+            // brightest thing in the frame.
+            float reach = 0.45F + 0.35F * strength;
+            P1.set(P0.x + (handX - P0.x) * reach,
+                    P0.y + (handY - P0.y) * reach,
+                    P0.z + (handZ - P0.z) * reach);
+
+            TANGENT.set(P1).sub(P0);
+            if (TANGENT.lengthSquared() < 1.0E-10F) {
+                continue;
+            }
+            TANGENT.normalize();
+
+            emitRibbonSegment(pose, buffer, P0, P1, TANGENT,
+                    0.014F * (0.5F + strength),
+                    Palette.HIGHLIGHT,
+                    0.30F * intensity * strength);
+        }
+
+        // ---- Occasional short outward sparks ----
+        int sparks = quality >= 0.5F ? 6 : 3;
+        for (int k = 0; k < sparks; k++) {
+            float gate = OrbitMath.noise(k * 3.1F, k * 6.7F, k * 1.9F, time * 2.8F, (seed % 400L) * 0.002F);
+            if (gate < 0.66F) {
+                continue;
+            }
+            float strength = (gate - 0.66F) / 0.34F;
+
+            float angle = k * 2.399F + time * 0.11F;
+            float y = 0.15F + 0.80F * positiveFraction(k * 0.29F + time * 0.017F);
+
+            float rInner = width * 1.0F;
+            float rOuter = rInner + 0.16F + 0.18F * strength;
+
+            P0.set((float) Math.cos(angle) * rInner, y * height, (float) Math.sin(angle) * rInner);
+            P1.set((float) Math.cos(angle) * rOuter, y * height + 0.05F, (float) Math.sin(angle) * rOuter);
+
+            TANGENT.set(P1).sub(P0);
+            if (TANGENT.lengthSquared() < 1.0E-10F) {
+                continue;
+            }
+            TANGENT.normalize();
+
+            emitRibbonSegment(pose, buffer, P0, P1, TANGENT,
+                    0.012F, Palette.HIGHLIGHT, 0.45F * intensity * strength);
+        }
+    }
+
+    /** Fractional part, always in 0..1. */
+    private static float positiveFraction(float value) {
+        float f = value - (float) Math.floor(value);
+        return f < 0.0F ? f + 1.0F : f;
+    }
+
+    // ------------------------------------------------------------------
+    // Thrown projectile
+    // ------------------------------------------------------------------
+
+    /**
+     * Draws every Rasengan projectile currently in flight.
+     *
+     * <p>The projectile is a real server-tracked entity, so its position arrives through vanilla
+     * entity syncing and every client near it sees the same thing. Rendering reuses the exact same
+     * shell/ring/helix/streak code as the held sphere - it is the same visual, just anchored to a
+     * flying entity instead of a hand - plus a twisting trail behind it.
+     *
+     * <p>Registered with a {@code NoopRenderer} on the entity type so vanilla draws nothing for it;
+     * all of its appearance comes from here, on the render path already proven by the held sphere.
+     */
+    private static void renderProjectiles(ClientLevel level, PoseStack poseStack,
+                                          SubmitNodeCollector collector, Vec3 cameraPos,
+                                          float partialTick, double maxDistance) {
+        for (Entity entity : level.entitiesForRendering()) {
+            if (!(entity instanceof RasenganProjectile projectile)) {
+                continue;
+            }
+
+            // Interpolated position, matching how vanilla draws moving entities.
+            Vec3 pos = new Vec3(
+                    Mth.lerp(partialTick, projectile.xOld, projectile.getX()),
+                    Mth.lerp(partialTick, projectile.yOld, projectile.getY()),
+                    Mth.lerp(partialTick, projectile.zOld, projectile.getZ()));
+
+            float distanceFactor = ClientTuning.distanceFactor(cameraPos, pos, maxDistance);
+            if (distanceFactor <= 0.0F) {
+                continue;
+            }
+
+            float quality = ClientTuning.meshQuality(cameraPos, pos);
+            float time = projectile.lifeTicks() + partialTick;
+            long seed = projectile.visualSeed();
+
+            // Spin up quickly over the first few ticks so the throw does not pop into existence.
+            float spawnIn = OrbitMath.smoothstep(0.0F, 3.0F, time);
+            float intensity = distanceFactor * spawnIn;
+            float radius = FULL_RADIUS * (0.92F + 0.08F * (float) Math.sin(time * 0.4F)) * spawnIn;
+
+            Vec3 velocity = projectile.getDeltaMovement();
+
+            poseStack.pushPose();
+            poseStack.translate(pos.x - cameraPos.x, pos.y - cameraPos.y, pos.z - cameraPos.z);
+
+            CAMERA_LOCAL.set(
+                    (float) (cameraPos.x - pos.x),
+                    (float) (cameraPos.y - pos.y),
+                    (float) (cameraPos.z - pos.z));
+
+            final float fRadius = radius;
+            final float fTime = time;
+            final float fIntensity = intensity;
+            final float fQuality = quality;
+            final Layer[] layers = OrbitMath.buildLayers(seed, 7);
+            final float vx = (float) -velocity.x;
+            final float vy = (float) -velocity.y;
+            final float vz = (float) -velocity.z;
+
+            collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) -> {
+                emitShells(pose, buffer, fRadius, fTime, fIntensity, fQuality, seed);
+                emitOrbitalRings(pose, buffer, layers, fRadius, fTime, fIntensity, fQuality);
+                emitHelices(pose, buffer, fRadius, fTime, fIntensity, fQuality, seed);
+                emitStreaks(pose, buffer, fRadius, fTime, fIntensity, seed);
+                emitTrail(pose, buffer, vx, vy, vz, fRadius, fTime, fIntensity, seed);
+            });
+
+            poseStack.popPose();
+        }
+    }
+
+    /**
+     * A short twisting trail streaming out behind the projectile.
+     *
+     * <p>Built in the projectile's local space along the reverse of its velocity, so it always
+     * points back down the flight path. Two counter-rotating ribbons braid around that axis, which
+     * is what gives the trail its twist instead of looking like a straight smear.
+     */
+    private static void emitTrail(PoseStack.Pose pose, VertexConsumer buffer,
+                                  float backX, float backY, float backZ,
+                                  float radius, float time, float intensity, long seed) {
+        // Direction the trail extends in.
+        TRAIL_AXIS.set(backX, backY, backZ);
+        if (TRAIL_AXIS.lengthSquared() < 1.0E-8F) {
+            return;
+        }
+        float speed = TRAIL_AXIS.length();
+        TRAIL_AXIS.normalize();
+
+        // Two perpendicular axes to braid around.
+        OrbitMath.perpendicular(TRAIL_AXIS, TRAIL_U);
+        TRAIL_V.set(TRAIL_AXIS).cross(TRAIL_U).normalize();
+
+        // Trail length scales with speed but is capped so it never becomes a laser.
+        float length = Math.min(3.2F, speed * 2.6F);
+        final int segments = 14;
+
+        for (int braid = 0; braid < 2; braid++) {
+            float spin = braid == 0 ? 1.0F : -1.0F;
+            float phase = braid * 3.1416F + (seed % 500L) * 0.002F;
+
+            for (int i = 0; i < segments; i++) {
+                float f0 = i / (float) segments;
+                float f1 = (i + 1) / (float) segments;
+
+                trailPoint(f0, length, radius, spin, phase, time, P0);
+                trailPoint(f1, length, radius, spin, phase, time, P1);
+
+                TANGENT.set(P1).sub(P0);
+                if (TANGENT.lengthSquared() < 1.0E-10F) {
+                    continue;
+                }
+                TANGENT.normalize();
+
+                // Thin and fade toward the tail so it dissolves rather than ending abruptly.
+                float fade = 1.0F - f0;
+                float alpha = 0.55F * intensity * fade * fade;
+
+                emitRibbonSegment(pose, buffer, P0, P1, TANGENT,
+                        0.030F * radius / FULL_RADIUS * (0.35F + fade),
+                        Palette.lerp(Palette.HIGHLIGHT, Palette.BLUE, f0),
+                        alpha);
+            }
+        }
+    }
+
+    /** One point on a braided trail strand, {@code f} running 0 (head) to 1 (tail). */
+    private static void trailPoint(float f, float length, float radius, float spin,
+                                   float phase, float time, Vector3f out) {
+        float along = f * length;
+        // Braid radius widens slightly then tapers, so the trail flares just behind the sphere.
+        float braidRadius = radius * (0.55F + 0.75F * (float) Math.sin(f * Math.PI)) * 0.9F;
+        float angle = phase + spin * (f * 9.0F - time * 0.55F);
+
+        float c = (float) Math.cos(angle) * braidRadius;
+        float s = (float) Math.sin(angle) * braidRadius;
+
+        out.set(
+                TRAIL_AXIS.x * along + TRAIL_U.x * c + TRAIL_V.x * s,
+                TRAIL_AXIS.y * along + TRAIL_U.y * c + TRAIL_V.y * s,
+                TRAIL_AXIS.z * along + TRAIL_U.z * c + TRAIL_V.z * s);
     }
 
     // ------------------------------------------------------------------

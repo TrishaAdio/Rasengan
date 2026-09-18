@@ -73,7 +73,11 @@ public final class ClientCastTracker {
                 level.getGameTime(),
                 LAYER_COUNT,
                 density * ClientTuning.particleScale(),
-                aura * ClientTuning.auraScale()));
+                // Raw server aura intensity. The player's particle setting is applied later, and
+                // only to the particle layer - the mesh aura must not vanish just because someone
+                // set Particles to Minimal, or the aura would silently disappear while the
+                // sphere kept rendering. That asymmetry was the original aura bug.
+                aura));
     }
 
     public static void onCastImpact(RasenganPayloads.CastImpact payload) {

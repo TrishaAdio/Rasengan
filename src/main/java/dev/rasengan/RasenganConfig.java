@@ -43,6 +43,13 @@ public final class RasenganConfig {
         public final ModConfigSpec.BooleanValue bypassInvulnerabilityFrames;
         public final ModConfigSpec.BooleanValue announceCast;
 
+        // ---- Thrown projectile ----
+        public final ModConfigSpec.DoubleValue projectileSpeed;
+        public final ModConfigSpec.DoubleValue projectileGravity;
+        public final ModConfigSpec.DoubleValue projectileDrag;
+        public final ModConfigSpec.IntValue projectileLifetimeTicks;
+        public final ModConfigSpec.DoubleValue projectileMaxRange;
+
         // ---- Environment ----
         public final ModConfigSpec.BooleanValue blockDamageEnabled;
         public final ModConfigSpec.DoubleValue environmentDamageRadius;
@@ -108,6 +115,30 @@ public final class RasenganConfig {
             announceCast = builder
                     .comment("Broadcast '<player name> casted Rasengan' to every online player on a successful cast.")
                     .define("announce_cast", true);
+
+            builder.pop().push("projectile");
+
+            projectileSpeed = builder
+                    .comment("Launch speed of the thrown sphere, in blocks per tick.",
+                            "1.2 is about 24 blocks/second - fast, but still visibly a projectile.",
+                            "Collision is a continuous sweep, so high values cannot tunnel through targets.")
+                    .defineInRange("speed", 1.2D, 0.1D, 10.0D);
+
+            projectileGravity = builder
+                    .comment("Downward acceleration per tick, in blocks. 0.0 makes the flight perfectly flat.")
+                    .defineInRange("gravity", 0.03D, 0.0D, 1.0D);
+
+            projectileDrag = builder
+                    .comment("Velocity retained each tick. 1.0 is no drag; lower values slow the sphere down.")
+                    .defineInRange("drag", 0.99D, 0.5D, 1.0D);
+
+            projectileLifetimeTicks = builder
+                    .comment("Maximum ticks the sphere may stay airborne before it fizzles out (20 ticks = 1 second).")
+                    .defineInRange("lifetime_ticks", 100, 5, 600);
+
+            projectileMaxRange = builder
+                    .comment("Maximum distance in blocks the sphere may travel before it fizzles out.")
+                    .defineInRange("max_range", 64.0D, 4.0D, 256.0D);
 
             builder.pop().push("environment");
 
@@ -188,5 +219,25 @@ public final class RasenganConfig {
 
     public static double maxEffectDistance() {
         return SERVER.maxEffectDistance.get();
+    }
+
+    public static double projectileSpeed() {
+        return SERVER.projectileSpeed.get();
+    }
+
+    public static double projectileGravity() {
+        return SERVER.projectileGravity.get();
+    }
+
+    public static double projectileDrag() {
+        return SERVER.projectileDrag.get();
+    }
+
+    public static int projectileLifetimeTicks() {
+        return SERVER.projectileLifetimeTicks.get();
+    }
+
+    public static double projectileMaxRange() {
+        return SERVER.projectileMaxRange.get();
     }
 }

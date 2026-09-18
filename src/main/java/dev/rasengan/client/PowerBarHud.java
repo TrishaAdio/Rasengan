@@ -11,16 +11,23 @@ import net.neoforged.neoforge.client.gui.GuiLayer;
 /**
  * The POWER BAR: a persistent bottom-centre HUD element.
  *
- * <p>Layout, from the bottom of the screen upward, is chosen to sit clear of the vanilla hotbar,
- * experience bar and health/armour rows.
- *
  * <h2>Smoothness</h2>
  * The percentage comes from {@link ClientPowerState#fraction(float)}, which folds in the frame's
  * partial tick, so the label and the bar both advance every frame rather than 20 times a second.
- * The bar additionally renders a fractional leading pixel: full pixels are drawn at full alpha
- * and the remainder is drawn as one partially transparent column, so the fill edge glides
- * instead of snapping a whole pixel at a time. At the default 150-second charge that is the
- * difference between a visibly stepping bar and a continuous one.
+ * The bar additionally renders a fractional leading pixel: full pixels are drawn at full alpha and
+ * the remainder is drawn as one partially transparent column, so the fill edge glides instead of
+ * snapping a whole pixel at a time.
+ *
+ * <h2>Glow</h2>
+ * The bar has its own glow, entirely independent of the Rasengan sphere and aura - it runs even
+ * when no cast is happening, because its job is to telegraph readiness. It is composed of two
+ * continuous effects, both pure functions of time so neither can flicker or step:
+ * <ul>
+ *   <li>a <b>breathing</b> brightness that rises and falls across the whole filled portion;</li>
+ *   <li>a <b>travelling shimmer</b>, a soft highlight that sweeps repeatedly along the fill.</li>
+ * </ul>
+ * Both scale with the fill fraction <em>squared</em>, so the bar is nearly calm when empty and
+ * unmistakably alive as it approaches 100%. This is client-side cosmetic only and is never synced.
  */
 public final class PowerBarHud implements GuiLayer {
 
@@ -30,6 +37,9 @@ public final class PowerBarHud implements GuiLayer {
     private static final int BAR_HEIGHT = 8;
     /** Distance from the bottom of the screen to the top of the bar. */
     private static final int BOTTOM_OFFSET = 60;
+
+    /** Horizontal slices used to paint the glow gradient. Enough to look continuous. */
+    private static final int GLOW_SEGMENTS = 32;
 
     private static final int COLOR_BORDER = 0xFF0A1A24;
     private static final int COLOR_TRACK = 0xB0031017;
@@ -57,6 +67,10 @@ public final class PowerBarHud implements GuiLayer {
         int percent = ClientPowerState.percent(partialTick);
         PowerState state = ClientPowerState.state();
 
+        // Continuous tick-based clock for the animations. Including the partial tick is what
+        // makes the glow move every frame instead of 20 times a second.
+        float time = (minecraft.level != null ? minecraft.level.getGameTime() : 0L) + partialTick;
+
         Font font = minecraft.font;
         int screenWidth = graphics.guiWidth();
         int screenHeight = graphics.guiHeight();
@@ -78,9 +92,6 @@ public final class PowerBarHud implements GuiLayer {
         float remainder = exact - wholePixels;
 
         if (wholePixels > 0) {
-            // Gradient along the bar: cyan at the base, white-blue at the hot end.
-            // fillGradient interpolates vertically, so the horizontal ramp is approximated by
-            // two stacked bands, which is enough to give the fill depth without extra draws.
             int mid = barY + BAR_HEIGHT / 2;
             graphics.fillGradient(barX, barY, barX + wholePixels, mid,
                     Palette.argb(Palette.HUD_FILL_HOT, 0.95F), Palette.argb(Palette.HUD_FILL, 0.95F));
@@ -95,20 +106,14 @@ public final class PowerBarHud implements GuiLayer {
                     Palette.argb(Palette.HUD_FILL, remainder * 0.95F));
         }
 
+        // ---- The bar's own glow ----
+        renderGlow(graphics, barX, barY, wholePixels, fraction, time, state);
+
         // ---- Leading-edge highlight ----
         if (state == PowerState.CHARGING && wholePixels > 1) {
             int edgeX = barX + wholePixels;
             graphics.fill(edgeX - 1, barY, edgeX, barY + BAR_HEIGHT,
                     Palette.argb(Palette.HIGHLIGHT, 0.75F));
-        }
-
-        // ---- Ready pulse ----
-        // A slow breathing overlay so a full bar is obvious without being noisy.
-        if (state == PowerState.READY) {
-            float phase = (float) ((minecraft.level != null ? minecraft.level.getGameTime() : 0L) + partialTick);
-            float pulse = 0.30F + 0.30F * (float) Math.sin(phase * 0.20F);
-            graphics.fill(barX, barY, barX + BAR_WIDTH, barY + BAR_HEIGHT,
-                    Palette.argb(Palette.HIGHLIGHT, pulse));
         }
 
         // ---- Readout ----
@@ -119,5 +124,95 @@ public final class PowerBarHud implements GuiLayer {
             case CHARGING -> Component.literal(percent + "%");
         };
         graphics.centeredText(font, readout, centreX, barY - 11, COLOR_LABEL);
+    }
+
+    /**
+     * Paints the breathing glow and the travelling shimmer over the filled portion.
+     *
+     * <p>Drawn as {@link #GLOW_SEGMENTS} vertical slices whose alpha varies per slice. Varying
+     * alpha across slices is what produces a visible gradient sweeping along the bar; a single
+     * rectangle could only ever pulse uniformly.
+     */
+    private void renderGlow(GuiGraphicsExtractor graphics, int barX, int barY, int filledWidth,
+                            float fraction, float time, PowerState state) {
+        if (filledWidth <= 0) {
+            return;
+        }
+
+        // Readiness curve: squared so the effect stays subtle for most of the charge and then
+        // ramps hard over the last stretch.
+        float readiness = Math.clamp(fraction, 0.0F, 1.0F);
+        float ramp = readiness * readiness;
+
+        // Breathing brightness. Period is roughly 35 ticks at the base rate, quickening as the
+        // bar fills so a nearly-ready bar feels more urgent.
+        float breatheRate = 0.18F + 0.10F * ramp;
+        float breathe = 0.5F + 0.5F * (float) Math.sin(time * breatheRate);
+
+        float baseAlpha = (0.05F + 0.26F * ramp) * (0.55F + 0.45F * breathe);
+
+        // Travelling shimmer head, looping along the filled portion.
+        float sweepRate = 0.016F + 0.020F * ramp;
+        float head = positiveFraction(time * sweepRate);
+
+        // A tighter, brighter shimmer as the bar fills.
+        float shimmerWidth = 4.0F + 2.5F * ramp;
+        float shimmerPeak = 0.14F + 0.40F * ramp;
+
+        boolean ready = state == PowerState.READY;
+        if (ready) {
+            // At 100% the shimmer becomes a steady, obvious pulse rather than ramping further.
+            baseAlpha = 0.20F + 0.18F * breathe;
+            shimmerPeak = 0.55F;
+        }
+
+        for (int i = 0; i < GLOW_SEGMENTS; i++) {
+            float t0 = i / (float) GLOW_SEGMENTS;
+            float t1 = (i + 1) / (float) GLOW_SEGMENTS;
+
+            int x0 = barX + Math.round(t0 * filledWidth);
+            int x1 = barX + Math.round(t1 * filledWidth);
+            if (x1 <= x0) {
+                continue; // slice narrower than a pixel at this fill width
+            }
+
+            float centre = (t0 + t1) * 0.5F;
+
+            // Wrapped distance to the shimmer head, so the sweep loops seamlessly.
+            float distance = Math.abs(centre - head);
+            distance = Math.min(distance, 1.0F - distance);
+
+            float falloff = Math.max(0.0F, 1.0F - distance * shimmerWidth);
+            float shimmer = falloff * falloff * shimmerPeak;
+
+            float alpha = Math.min(0.85F, baseAlpha + shimmer);
+            if (alpha <= 0.004F) {
+                continue;
+            }
+
+            // Shimmer crest leans toward the white-blue highlight; the body stays cyan.
+            int colour = Palette.lerp(Palette.HUD_FILL, Palette.HUD_FILL_HOT,
+                    Math.clamp(shimmer / Math.max(0.001F, shimmerPeak), 0.0F, 1.0F));
+
+            graphics.fill(x0, barY, x1, barY + BAR_HEIGHT, Palette.argb(colour, alpha));
+        }
+
+        // ---- Outer halo, only once the bar is genuinely close to ready ----
+        float haloStrength = OrbitMath.smoothstep(0.75F, 1.0F, readiness);
+        if (haloStrength > 0.01F) {
+            float haloAlpha = (0.10F + 0.22F * breathe) * haloStrength;
+            int halo = Palette.argb(Palette.HIGHLIGHT, haloAlpha);
+            int right = barX + filledWidth;
+            // Thin bands hugging the bar, top and bottom, plus the leading edge.
+            graphics.fill(barX - 1, barY - 2, right + 1, barY - 1, halo);
+            graphics.fill(barX - 1, barY + BAR_HEIGHT + 1, right + 1, barY + BAR_HEIGHT + 2, halo);
+            graphics.fill(right, barY - 1, right + 2, barY + BAR_HEIGHT + 1, halo);
+        }
+    }
+
+    /** Fractional part, always in 0..1 even for negative inputs. */
+    private static float positiveFraction(float value) {
+        float f = value - (float) Math.floor(value);
+        return f < 0.0F ? f + 1.0F : f;
     }
 }

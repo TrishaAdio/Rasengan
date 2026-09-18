@@ -57,7 +57,7 @@ These are the things that changed most recently and that the code depends on:
 
 1. Install **Java 25**.
 2. Install the **NeoForge 26.1.2.109** client profile from <https://neoforged.net>.
-3. Drop `rasengan-1.0.0.jar` into `.minecraft/mods/`.
+3. Drop `rasengan-1.1.0.jar` into `.minecraft/mods/`.
 4. Launch the NeoForge 26.1.2 profile.
 5. Optionally rebind the ability key: **Options → Controls → Gameplay → "Cast Rasengan"**
    (default **`R`**).
@@ -66,7 +66,7 @@ These are the things that changed most recently and that the code depends on:
 
 1. Install **Java 25** on the host.
 2. Install the NeoForge **26.1.2.109** server.
-3. Drop `rasengan-1.0.0.jar` into `mods/`.
+3. Drop `rasengan-1.1.0.jar` into `mods/`.
 4. Start the server once. It writes `config/rasengan-server.toml`.
 5. Edit that file, then restart (or use `/reload` for the values read per-cast).
 
@@ -87,21 +87,61 @@ logical side, not on physical side, so a LAN host and a dedicated server behave 
 
 ## 3. Gameplay
 
-**Release behaviour: close-range hand strike (thrust).**
+**Release behaviour: thrown projectile.**
 
-The sphere forms and stays in the caster's hand for the whole cast. On release the caster thrusts
-it forward along the aim direction that was captured and validated at activation. The server then
-sweeps a sphere of radius `hitbox_size` along that direction out to `range` blocks and takes the
-first entity it meets, stopping at solid terrain so the strike cannot reach through a wall.
+The sphere forms and is held in the caster's hand for the duration of the cast. On release it is
+launched forward as a dedicated `rasengan:rasengan_projectile` entity along the caster's aim vector.
+It keeps the full layered energy-sphere visual while in flight, with a braided twisting trail behind
+it, and it is a real server-tracked entity so every nearby player sees it travel.
 
-There is deliberately **no projectile entity**: the strike resolves inside a single server tick,
-which is what makes "one immediate hit, never repeated" straightforward to guarantee.
-
-1. Wait for the POWER BAR to reach 100% (150 seconds by default).
+1. Wait for the POWER BAR to reach 100% (150 seconds by default), or use `/chargeit` in Creative.
 2. Aim and press **`R`**.
-3. The caster braces, the sphere forms in-hand over ~1.5 seconds, then the strike resolves.
-4. A direct hit deals **40 health points = 20 full hearts**, once.
-5. The bar resets to 0% and immediately begins the next 150-second cycle.
+3. The caster braces and the sphere forms in-hand over ~1.5 seconds.
+4. The sphere launches. On first contact it detonates.
+5. A direct entity hit deals **40 health points = 20 full hearts**, once.
+6. The bar resets to 0% and immediately begins the next 150-second cycle.
+
+On contact the projectile stops being a projectile immediately: it applies the single hit, fires the
+impact packet, optionally damages terrain, and discards itself in the same tick.
+
+- **Entity contact** → full 40-point hit, once, plus the impact blast.
+- **Terrain contact** (if no entity was hit first) → impact blast and optional block damage per
+  `block_damage_enabled`, but **no** entity damage.
+- **Lifetime or range exceeded** → fizzles with a whiff effect, no damage, entity removed.
+
+It is not built on vanilla projectile code. It extends `Entity` directly — not `Arrow`, not
+`AbstractArrow`, not `Projectile` — and reuses no arrow item, model or texture.
+
+### Why it cannot pass through a target
+
+Moving the entity and then asking what it overlaps misses anything smaller than one tick of travel,
+which at 1.2 blocks/tick is most hitboxes. Instead, each tick sweeps the **segment** from the current
+position to the intended next position:
+
+1. Clip the segment against terrain to find how far it can actually reach.
+2. Test that segment against every nearby entity's hitbox, inflated by `hitbox_size`, using a
+   slab-method ray/box intersection written for this mod.
+3. Take the nearest entity hit along the segment; if there is none, take the block hit.
+
+Because the test is continuous along the path rather than a point sample, the first entity in the
+way always registers regardless of speed. Raising `speed` cannot cause tunnelling.
+
+### `/chargeit`
+
+Fills your POWER BAR to 100% instantly, skipping the timer.
+
+| Form | Requires |
+|---|---|
+| `/chargeit` | Caller must be in **Creative mode**. No permission level needed. |
+| `/chargeit <player>` | Gamemaster permission (vanilla's `/gamemode` tier), **and** the *target* must be in Creative. |
+
+This is server-authoritative by construction: Brigadier parses and executes commands on the server,
+and the game mode is read from the server's own copy of the player. There is no packet and no client
+involvement, so a modified client cannot claim to be in Creative — it is never asked. In any other
+game mode the command does nothing and reports `"/chargeit is Creative mode only."`
+
+The Creative requirement follows the player *being charged*, not the operator running the command,
+so it cannot be used to hand a survival player a free cast.
 
 On a successful cast — and only then — every online player receives:
 
@@ -294,12 +334,53 @@ particle picks a colour, the random draw only chooses *which palette entry* and 
 between two of them. It is structurally impossible to produce an off-palette hue or a per-player
 colour.
 
+### The caster body aura
+
+The aura is drawn as **geometry, in the same submit pass as the hand sphere**, from the same
+`ClientCast` record and therefore the same server `CastStart` trigger. The two cannot start at
+different times or appear independently — they are emitted from one loop iteration in one frame.
+
+It consists of seven helical streamers climbing the body, energy currents converging on the casting
+hand, and intermittent outward sparks, all thin and sparse so the player's skin, armour, held item
+and the world behind them stay readable. A particle layer adds extra texture on top.
+
+> **Fixed in 1.1.0.** The aura previously existed *only* as particles, on a code path separate from
+> the sphere's. Anything that suppressed particles — the vanilla Particles setting on `Minimal`, a
+> server `particle_density` of 0, or the sphere's own density early-return, which sat *above* the
+> aura block and returned before it — silently removed the aura while the sphere kept rendering.
+> That asymmetry was the bug. The aura is now mesh-first and gated only on its own intensity.
+
 ### The aura is not permanent
 
-The body aura is emitted only while a cast is active, and emission stops the moment the cast is
-released, cancelled or impacts. It does not appear while walking, standing still, or charging the
-POWER BAR. Intensity fades out over a few ticks on every exit path, so it always disappears
-cleanly.
+The aura is emitted only while a cast is active, and stops the moment the cast is released, cancelled
+or impacts. It does not appear while walking, standing still, or charging the POWER BAR. Intensity
+fades out over a few ticks on every exit path, so it always disappears cleanly.
+
+### The projectile's visual
+
+The in-flight sphere is drawn by the *same* shell/ring/helix/streak code as the held sphere — it is
+literally the same visual, anchored to a flying entity instead of a hand — plus a braided trail of
+two counter-rotating ribbons along the reverse of its velocity, which is what gives the trail its
+twist rather than a straight smear.
+
+The entity type registers a vanilla `NoopRenderer` so Minecraft draws nothing for it; all of its
+appearance comes from `SubmitCustomGeometryEvent`, the render path already proven by the held sphere.
+That keeps one implementation of the energy sphere rather than a second one inside an
+`EntityRenderer`.
+
+### POWER BAR glow
+
+The bar has its own glow, completely independent of the sphere and aura — it runs when no cast is
+happening, because its job is to telegraph readiness. Two continuous effects, both pure functions of
+time so neither can flicker or step:
+
+- a **breathing** brightness across the filled portion, whose period also quickens as the bar fills;
+- a **travelling shimmer**, a soft highlight sweeping repeatedly along the fill.
+
+Both scale with the fill fraction **squared**, so the bar is nearly calm when empty and unmistakably
+alive near 100%; at exactly 100% it settles into a steady strong pulse. Once past 75% a thin outer
+halo appears around the bar. Painted as 32 vertical slices with per-slice alpha — a single rectangle
+could only pulse uniformly, never sweep. Client-side cosmetic only; never synced.
 
 ---
 
@@ -327,6 +408,13 @@ the server enforces.
 	cooldown_ticks = 0                   # extra lockout before charging resumes
 	bypass_invulnerability_frames = true
 	announce_cast = true                 # the global chat announcement
+
+[projectile]
+	speed = 1.2                          # blocks per tick (~24 blocks/second)
+	gravity = 0.03                       # downward accel per tick; 0.0 = flat flight
+	drag = 0.99                          # velocity retained per tick; 1.0 = no drag
+	lifetime_ticks = 100                 # max airborne time before it fizzles
+	max_range = 64.0                     # max distance travelled before it fizzles
 
 [environment]
 	block_damage_enabled = false         # OFF by default
@@ -432,7 +520,7 @@ cd rasengan
 ./gradlew build
 ```
 
-Output: `build/libs/rasengan-1.0.0.jar`.
+Output: `build/libs/rasengan-1.1.0.jar`.
 
 Requires **JDK 25** on `PATH` (or discoverable by Gradle's toolchain detection). The wrapper
 fetches Gradle 9.7.1 automatically. The first build downloads and decompiles Minecraft, which
@@ -466,11 +554,15 @@ python3 tools/generate_particle_textures.py
 
 | Check | Result |
 |---|---|
-| `./gradlew build` | Passes; produces `rasengan-1.0.0.jar`. |
+| `./gradlew build` | Passes; produces `rasengan-1.1.0.jar`. |
 | Dedicated server boot | `Done (0.206s)!` on `minecraft server version 26.1.2`, mod loaded as `Rasengan 1.0.0 (rasengan)`. No `NoClassDefFoundError` / `ClassNotFoundException`. |
 | Client-class isolation | `javap` over every compiled class: of 20 non-client classes, **zero** reference `net/minecraft/client/*`, and exactly **one** references `dev/rasengan/client/` — `Rasengan` → `RasenganClient`, inside the `Dist.CLIENT` branch. |
 | Config generation | `config/rasengan-server.toml` written with every documented option and the correct defaults, including `block_damage_enabled = false`. |
 | Damage correctness | Iron Golem (100 HP) given **Resistance IV** (80% reduction), then `damage @e[type=iron_golem,limit=1] 40 rasengan:rasengan` → health **exactly 60.0**. A non-bypassing source under Resistance IV would have dealt 8. Confirms the damage type registered, the bypass tags work, and 40 points land as one hit. |
+| **Projectile hit (end to end)** | Golem at `8 100 12`, projectile summoned at `8 100 2` with `Motion:[0,0,1.2]`. It flew the 10 blocks, struck the golem, and health went 100.0 → **exactly 60.0**. Confirms entity registration, the continuous-sweep collision, and the single 40-point hit in flight. |
+| **Projectile cleanup** | `execute unless entity @e[type=rasengan:rasengan_projectile]` printed `DESPAWNED_OK` after impact — the entity removes itself in the same tick. No exceptions in the log. |
+| **`/chargeit` registration** | `help chargeit` → `/chargeit [<target>]`, confirming both forms. `/chargeit` from console → *"A player is required to run this command here"*. `/chargeit NoSuchPlayer123` → *"No player was found"*. |
+| Config generation | `[projectile]` section written with correct defaults (`speed = 1.2`, `lifetime_ticks = 100`, `max_range = 64.0`). |
 
 Reproduce the damage check on a dev server:
 
@@ -482,8 +574,27 @@ damage @e[type=iron_golem,limit=1] 40 rasengan:rasengan
 data get entity @e[type=iron_golem,limit=1] Health
 ```
 
-Expected: `60.0f`. (Set `pause-when-empty-seconds=0` in `server.properties`, or the server pauses
-when no player is online and entities stop ticking.)
+Expected: `60.0f`.
+
+Reproduce the **projectile** check:
+
+```
+forceload add -32 -32 47 47
+summon minecraft:iron_golem 8 100 12 {NoGravity:1b,NoAI:1b}
+summon rasengan:rasengan_projectile 8 100 2 {Motion:[0.0,0.0,1.2]}
+data get entity @e[type=iron_golem,limit=1] Health
+execute unless entity @e[type=rasengan:rasengan_projectile] run say DESPAWNED_OK
+```
+
+Expected: `60.0f`, then `DESPAWNED_OK`.
+
+Two gotchas when testing headless, both of which cost me a false negative:
+
+- Set `pause-when-empty-seconds=0` in `server.properties`. The server pauses when empty and entities
+  stop ticking.
+- **Forceload the chunk the projectile is actually in.** `forceload add 0 0` only covers blocks
+  `0..15`; a projectile at `z=-6` sits in chunk `(0,-1)` and never ticks, which looks exactly like
+  broken collision.
 
 ### Manual test checklist
 
@@ -492,15 +603,24 @@ Not yet exercised — these need a graphical client, which the build environment
 - [ ] HUD appears bottom-centre, reads `POWER BAR`, and ticks up smoothly with no visible stepping.
 - [ ] Bar takes 150 seconds to fill; pressing `R` below 100% does nothing at all.
 - [ ] At 100%, `R` casts: bar snaps to 0% and immediately starts the next cycle.
+- [ ] **Bar glow**: shimmer sweeps along the fill, breathing brightness rises as it fills, halo
+      appears past ~75%, steady strong pulse at 100%. Smooth, never flickering or stepped.
 - [ ] Exactly one `<name> casted Rasengan` per successful cast, seen by all players including the
       caster.
-- [ ] A direct hit removes 20 hearts in one step.
-- [ ] Impact animation plays fully even when the hit is lethal.
+- [ ] **Aura appears the instant the cast begins**, at the same moment as the hand sphere.
+- [ ] **Aura is visible on *other* players' bodies**, not just your own — have a second client watch.
 - [ ] Aura is absent while walking/idle/charging, present only during the cast, gone cleanly after.
+- [ ] Aura still appears with the Particles video setting on **Minimal** (it is geometry now).
 - [ ] Sphere stays glued to the hand while running, turning and jumping.
-- [ ] Two clients side by side see the same sphere and the same impact position.
+- [ ] **Projectile** launches on release, keeps the full sphere visual plus twisting trail in flight,
+      and is visible to nearby players.
+- [ ] Projectile hitting a mob removes 20 hearts in one step and detonates at the contact point.
+- [ ] Projectile hitting a wall detonates there and deals no entity damage.
+- [ ] Impact animation plays fully even when the hit is lethal.
+- [ ] Two clients side by side see the same sphere, the same projectile path, and the same impact.
 - [ ] Casting, then disconnecting mid-cast, leaves no stuck effect for other players.
-- [ ] Several simultaneous casters do not tank frame rate.
+- [ ] `/chargeit` fills the bar in Creative; refuses with a clear message in Survival/Adventure.
+- [ ] Several simultaneous casters and projectiles do not tank frame rate.
 
 ---
 
@@ -511,6 +631,7 @@ src/main/java/dev/rasengan/
 ├── Rasengan.java              entrypoint; payload registration; Dist.CLIENT gate
 ├── RasenganConfig.java        server config spec
 ├── RasenganParticles.java     particle type registry
+├── RasenganEntities.java      projectile entity type registry
 ├── PowerState.java            the four-state enum
 ├── network/
 │   └── RasenganPayloads.java  all 5 payloads + cosmetic-cap packing
@@ -519,7 +640,9 @@ src/main/java/dev/rasengan/
 │   ├── RasenganAttachments.java   data attachment registration
 │   ├── ServerPowerManager.java    charge tick, state machine, sync, lifecycle
 │   ├── ActiveCast.java            transient in-flight cast record
-│   └── ServerCastManager.java     validation, timing, hit sweep, damage, chat
+│   ├── ServerCastManager.java     validation, timing, launch, chat
+│   ├── RasenganProjectile.java    thrown sphere: flight, sweep collision, damage
+│   └── ChargeCommand.java         /chargeit, Creative-gated server-side
 └── client/                    ← never loaded on a dedicated server
     ├── RasenganClient.java        client bootstrap
     ├── PowerBarHud.java           the POWER BAR
