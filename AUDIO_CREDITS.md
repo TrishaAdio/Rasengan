@@ -4,15 +4,15 @@ Recorded here so the origin of every shipped sound is documented rather than imp
 
 | File | Origin | Notes |
 |---|---|---|
-| `rasenshuriken_form.ogg` | **Synthesised** by `tools/generate_shuriken_sound.py` | Original. Reproducible from the script. |
-| `rasenshuriken_spin.ogg` | **Synthesised** by `tools/generate_shuriken_sound.py` | Original. Amplitude modulation locked to the renderer's rotation rate (10.82 Hz). |
-| `rasengan_form.ogg` | **Imported from a source recording supplied by the project owner**, processed by `tools/import_rasengan_sound.py` | See the caveat below. |
-| `rasengan_spin.ogg` | **Imported from a source recording supplied by the project owner**, processed by `tools/import_rasengan_sound.py` | See the caveat below. |
+| `rasenshuriken_form.ogg` | **Imported from a source recording supplied by the project owner**, processed by `tools/import_sounds.py` | See the caveat below. Replaced an earlier synthesised version. |
+| `rasenshuriken_spin.ogg` | **Imported from a source recording supplied by the project owner**, processed by `tools/import_sounds.py` | See the caveat below. Replaced an earlier synthesised version. |
+| `rasengan_form.ogg` | **Imported from a source recording supplied by the project owner**, processed by `tools/import_sounds.py` | See the caveat below. |
+| `rasengan_spin.ogg` | **Imported from a source recording supplied by the project owner**, processed by `tools/import_sounds.py` | See the caveat below. |
 
-## Caveat on the imported Rasengan audio
+## Caveat on the imported audio
 
-The two `rasengan_*` files were derived from a third-party hosted audio file provided by the
-project owner. What was and was not verified:
+All four `rasengan_*` and `rasenshuriken_*` files were derived from third-party hosted audio
+files provided by the project owner. What was and was not verified:
 
 - **Checked:** the file carries no ID3 title/artist/album frames and none of the MP4/DASH container
   brands (`major_brand=dash`, `compatible_brands=iso6mp41`) that indicate audio demuxed from a
@@ -27,11 +27,12 @@ for confirming those rights.**
 
 If the rights cannot be confirmed, there are two clean options:
 
-1. Delete `rasengan_form.ogg` and `rasengan_spin.ogg`, then generate replacements the same way the
-   shuriken audio was produced — `tools/generate_shuriken_sound.py` already demonstrates the
-   approach and can be extended with a softer, rounder profile for Rasengan.
+1. Delete the imported files and generate replacements instead.
+   `tools/generate_shuriken_sound.py` is retained for exactly this purpose: it synthesises a
+   complete, original shuriken formation and loop from scratch, and demonstrates the approach for
+   producing a Rasengan equivalent.
 2. Keep the files out of version control (add them to `.gitignore`) and have each user run
-   `tools/import_rasengan_sound.py <their-own-file>` locally. The mod loads whatever is present in
+   `tools/import_sounds.py <ability> <their-own-file>` locally. The mod loads whatever is present in
    `assets/rasengan/sounds/`, so a local-only asset works without the repository redistributing it.
 
 ## Other audio
@@ -39,3 +40,24 @@ If the rights cannot be confirmed, there are two clean options:
 Rasengan's impact and the shuriken's impact still layer **stock Minecraft sound events**
 (`GENERIC_EXPLODE`, `GLASS_BREAK`, `WIND_CHARGE_BURST`, and similar). Those ship with the game and
 are referenced by id, so nothing is redistributed.
+
+## Verification performed on the imported audio
+
+Provenance screening, and the measurements behind the conversion:
+
+| Check | `rasengan_*` | `rasenshuriken_*` |
+|---|---|---|
+| MP4/DASH container brands (video-rip fingerprint) | absent | absent |
+| ID3 title / artist / album frames | absent | absent |
+| Source duration | 20.20s, peak 0.208 | 10.33s, peak 0.948 |
+| Tonal transition measured | n/a (steady hum) | **t = 3.50 → 3.75s**, RMS 0.108 → 0.214, spectral centroid 2832 → 3797 Hz |
+| Loop seam after processing | wrap 0.021 vs p99 step 0.237 | wrap 0.00058 vs p99 step 0.144 |
+
+The shuriken source's measured transition at 3.5s independently confirms
+`ShurikenRenderer.BLADE_SNAP_TICK = 70` (70 ticks = 3.5s at 20 tps), so the audio's character change
+and the blade-snap visual land on the same tick without either being adjusted to fit the other.
+
+The shuriken loop region was chosen by searching the post-transition part of the source for the join
+with the smallest discontinuity. An eyeballed region at 7.4s measured a wrap step of 0.199 against a
+99th-percentile internal step of 0.183 and clicked once per cycle; the selected region at 7.2s
+measures 0.00058, roughly 250x below the audible threshold.
