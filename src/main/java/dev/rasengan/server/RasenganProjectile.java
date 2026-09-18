@@ -195,16 +195,43 @@ public class RasenganProjectile extends Entity {
     }
 
     /**
-     * The spin clock the client renders with: continues the held sphere's count so the rotation
-     * phase carries across the throw rather than restarting.
+     * The spin clock at the current tick boundary, with no sub-tick component.
+     *
+     * <p>Use this only where a whole-tick value is what is wanted: the impact packet freezes the
+     * angle at the contact tick, and the server has no partial tick. <b>Rendering must not use
+     * this</b> - see {@link #spinTicks(float)}.
      */
     public float spinTicks() {
-        // Continues the held clock: the held phase began spinning at cast tick 70, so by release
-        // (cast duration) it had been spinning for (castDuration - 70) ticks. Carrying that forward
-        // keeps the rotation phase and the wind-up continuous across the throw.
+        return spinTicks(0.0F);
+    }
+
+    /**
+     * The spin clock the client renders with: continues the held sphere's count so the rotation
+     * phase carries across the throw rather than restarting.
+     *
+     * <h2>Why the partial tick is not optional here</h2>
+     * {@link #lifeTicks} is an {@code int} that advances once per client tick. Feeding it to the
+     * renderer raw quantises the entire in-flight shuriken animation to 20 Hz, and at
+     * {@code MAX_SPIN = 0.85} rad/tick that means the blades hold still for a whole tick and then
+     * jump 48.7 degrees - about three frozen frames then a snap, at 60 fps. Because the same clock
+     * also drives the blade flex, the tip vibration, the trailing wisps, the mist and the shell's
+     * breathing brightness, every one of those stepped with it.
+     *
+     * <p>Adding the frame's partial tick makes the clock a continuous function of real time, which
+     * is what {@link dev.rasengan.client.ShurikenRenderer#spinAngle} needs to be fed for its
+     * analytic integral to produce smooth motion. The convention matches the Rasengan branch of the
+     * renderer exactly ({@code castDuration + lifeTicks + partialTick}), so both abilities share one
+     * clock definition.
+     *
+     * @param partialTick fraction of the way through the current tick, 0..1
+     */
+    public float spinTicks(float partialTick) {
+        // Continues the held clock: the held phase began spinning at BLADE_SNAP_TICK, so by release
+        // (cast duration) it had been spinning for (castDuration - BLADE_SNAP_TICK) ticks. Carrying
+        // that forward keeps the rotation phase and the wind-up continuous across the throw.
         float heldSpin = Math.max(0.0F,
-                RasenganConfig.castDurationTicks(ability()) - 70.0F);
-        return heldSpin + lifeTicks;
+                RasenganConfig.castDurationTicks(ability()) - AbilityType.BLADE_SNAP_TICK);
+        return heldSpin + lifeTicks + partialTick;
     }
 
     // ------------------------------------------------------------------

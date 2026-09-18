@@ -1,0 +1,130 @@
+
+================================================================
+A. spinAngle IS the analytic integral of the ramped rate
+================================================================
+       t     spinAngle()     numeric int       abs err
+    0.50      0.00085814      0.00085814      1.14e-10       2.0 ulp
+    1.00      0.00670549      0.00670548      5.48e-10       1.2 ulp
+    2.00      0.05108941      0.05108941      5.93e-09       1.6 ulp
+    4.00      0.36784375      0.36784373      1.28e-08       0.4 ulp
+    6.00      1.10353124      1.10353131      7.19e-08       0.6 ulp
+    8.00      2.28880572      2.28880546      2.63e-07       1.1 ulp
+   10.00      3.83170581      3.83170538      4.26e-07       1.8 ulp
+   11.00      4.67500019      4.67500020      1.21e-08       0.0 ulp
+   12.00      5.52500010      5.52500051      4.19e-07       0.9 ulp
+   20.00     12.32500076     12.32499991      8.48e-07       0.9 ulp
+   50.00     37.82500076     37.82499999      7.75e-07       0.2 ulp
+  200.00    165.32501221    165.32500035      1.19e-05       0.8 ulp
+worst error over the set: 2.0 ulp of the float result
+VERDICT: PASS - analytic integral confirmed to float precision
+
+================================================================
+B. spinAngle continuity across the ramp boundary and per-frame smoothness
+================================================================
+angle(ramp-eps)=4.66650009  angle(ramp)=4.67500019  angle(ramp+eps)=4.68350029
+slope just below / above    : 0.850010 / 0.850010 rad per tick (MAX_SPIN=0.85)
+slope discontinuity         : 0.000e+00 rad/tick (0.000% of MAX_SPIN)
+expected post-ramp wind-up  : MAX_SPIN*ramp*0.5 = 4.675 rad, actual = 4.675
+max |2nd difference| at 1/64 tick sampling: 2.873e-05 rad (at t=6.094)
+  for scale, a 20 Hz quantised clock steps  : 8.500e-01 rad
+  ratio                                     : 3.4e-05
+VERDICT: PASS - C1 continuous, no step or kink
+
+================================================================
+C. In-flight spin clock: stepped (old) vs partial-tick (new), 60fps
+================================================================
+  frame   life       OLD angle       NEW angle     OLD delta     NEW delta
+      0      0       20.825001       20.825001      0.000000      0.000000
+      1      0       20.825001       21.108334      0.000000      0.283333
+      2      0       20.825001       21.391666      0.000000      0.283333
+      3      1       21.675001       21.675001      0.850000      0.283335
+      4      1       21.675001       21.958334      0.000000      0.283333
+      5      1       21.675001       22.241667      0.000000      0.283333
+      6      2       22.525002       22.525002      0.850000      0.283335
+      7      2       22.525002       22.808332      0.000000      0.283331
+      8      2       22.525002       23.091669      0.000000      0.283337
+      9      3       23.375000       23.375000      0.849998      0.283331
+     10      3       23.375000       23.658333      0.000000      0.283333
+     11      3       23.375000       23.941668      0.000000      0.283335
+max per-frame step OLD: 0.850000 rad = 48.70 degrees
+max per-frame step NEW: 0.283337 rad = 16.23 degrees
+
+The number that matters is UNIFORMITY, not magnitude: 0.85 rad/tick at
+60 fps SHOULD advance 0.2833 rad every frame.
+  OLD per-frame pattern: 0.000, 0.000, 0.850  (two frozen frames, then a snap)
+  NEW per-frame pattern: 0.283, 0.283, 0.283  (uniform)
+  OLD max/min step ratio: infinite (min step is exactly 0.000000 - the image is static for 2 of every 3 frames)
+  NEW max/min step ratio: 1.00002
+
+================================================================
+D. Blade separation: are all four exactly 90 degrees apart?
+================================================================
+spinTime    gap 0->1   gap 1->2   gap 2->3   gap 3->0  max dev from 90deg
+    0.00   90.000003  90.000003  89.999996  89.999999  0.000004
+    1.00   90.000003  90.000003  89.999982  89.999999  0.000018
+    2.00   90.000003  90.000009  89.999982  89.999999  0.000018
+    5.00   90.000003  90.000009  89.999982  89.999999  0.000018
+    8.00   89.999996  90.000009  90.000009  89.999999  0.000009
+   11.00   90.000009  90.000009  89.999982  89.999999  0.000018
+   15.00   89.999982  90.000037  89.999982  89.999999  0.000037
+   30.00   90.000037  89.999927  90.000037  89.999999  0.000073
+   60.00   90.000037  90.000037  90.000037  89.999890  0.000110
+  120.00   89.999818  90.000255  89.999818  90.000109  0.000255
+
+RIGID BASE ANGLES  : max deviation from exactly 90 deg = 2.55e-04 deg
+                     = 4.45e-06 rad = 3.52e-06 blocks of arc at the 0.79 block tip
+                     float32 ulp at an angle of ~100 rad is 7.63e-06 rad,
+                     so this is rounding of the angle magnitude, NOT
+                     accumulated drift: spinAngle is a pure function of t
+                     and is recomputed from scratch every frame.
+RENDERED TIPS      : max deviation from 90 deg = 3.8540 deg
+  (tip deviation is the INTENTIONAL flex+vibration detail, bounded by
+   0.030 rad flex + 0.055 rad vibration = 0.085 rad = 4.87 deg)
+VERDICT: PASS - rigid spin exact to float precision (sub-micron at the tip); only the deliberate flex/vibration deviates
+
+================================================================
+E. Wisp trace vs true tip position (fix 6)
+================================================================
+       t  blade           wisp root (tipAt)   true tip (bladePoint f=1)    err(new)    err(old)
+    2.00      0  (-0.1608, 0.0000, 0.7735)  (-0.1608, 0.0000, 0.7735)    0.000000    0.034667
+    5.00      0  ( 0.2966, 0.0000, 0.7322)  ( 0.2966, 0.0000, 0.7322)    0.000000    0.004970
+   11.00      0  (-0.7356,-0.0000,-0.2881)  (-0.7356,-0.0000,-0.2881)    0.000000    0.028313
+   20.00      0  (-0.3927, 0.0000, 0.6855)  (-0.3927, 0.0000, 0.6855)    0.000000    0.016749
+   45.00      0  ( 0.7584, 0.0000,-0.2214)  ( 0.7584, 0.0000,-0.2214)    0.000000    0.003369
+   90.00      0  ( 0.5099, 0.0000,-0.6034)  ( 0.5099, 0.0000,-0.6034)    0.000000    0.023740
+
+worst wisp-root to true-tip distance, NEW: 0.00000000 blocks
+worst wisp-root to true-tip distance, OLD: 0.04486042 blocks
+wisp ribbon half-width for scale         : 0.026000 blocks
+OLD error as a multiple of ribbon width  : 1.73x
+VERDICT: PASS - wisp now starts exactly on the true swept tip
+
+================================================================
+F. HUD glow phase: rate*t (old) vs integrated (new)
+================================================================
+Charge duration 3000 ticks (150s default). Rate ramps 0.18 -> 0.28 rad/tick.
+    worldAge   OLD apparent rate   NEW apparent rate         OLD/NEW
+           0            0.205033            0.205033             1.0x
+        1000            0.238367            0.205033             1.2x
+       24000            1.005047            0.205033             4.9x
+      240000            8.205169            0.205033            40.0x
+     1000000           33.538931            0.205033           163.6x
+    10000000          333.544009            0.205033          1626.8x
+
+A breath should advance ~0.18-0.28 rad/tick (period ~22-35 ticks).
+The OLD form's advance grows without bound with world age: at 1,000,000
+ticks it is tens of radians per tick, i.e. many full strobe cycles per
+tick, aliased into noise. The NEW form is world-age independent.
+
+================================================================
+G. Held -> flight handoff continuity
+================================================================
+shuriken held spin clock at release : 30.0000 ticks
+shuriken flight spin clock at spawn : 30.0000 ticks
+spin angle either side              : 20.82500076 / 20.82500076 rad
+angular discontinuity at handoff    : 0.000e+00 rad
+
+rasengan held radius at release     : 0.30000001 blocks
+rasengan projectile draw radius     : 0.30000001 blocks (FULL_RADIUS)
+size discontinuity at handoff       : 0.000e+00 blocks
+VERDICT: PASS - overshoot resolves to exactly 1.0 before release

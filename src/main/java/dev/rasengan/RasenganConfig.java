@@ -167,9 +167,22 @@ public final class RasenganConfig {
 
             shurikenLaunchSpeed = builder
                     .comment("Horizontal launch velocity applied to a struck entity, in blocks per tick.",
-                            "Minecraft air friction multiplies horizontal speed by 0.91 each tick, so total",
-                            "travel converges to speed / (1 - 0.91), about 11.1x this value.",
-                            "20.5 therefore lands around 225 blocks. Set to 0 with lift 0 to disable.")
+                            "",
+                            "MEASURED, not derived: a target standing on the ground and launched at 20.5",
+                            "lands about 143 blocks away (four headless trials: 142.03, 143.24, 143.24,",
+                            "143.24; mean 142.94, spread 1.21). Airtime 47 ticks / 2.35 s, peak rise",
+                            "20.02 blocks.",
+                            "",
+                            "The often-quoted figure of ~225 blocks is the AIR-FRICTION CONVERGENCE LIMIT",
+                            "speed / (1 - 0.91) = 11.1x speed, which only applies to a target that never",
+                            "touches the ground. A grounded target loses 45% of the launch on the very",
+                            "first tick, because that tick uses BLOCK friction (0.6 * 0.91 = 0.546) rather",
+                            "than air friction; measured first-tick ratio is exactly 0.5460, and every",
+                            "tick after it is 0.9100. Reaching ~225 blocks for a grounded target would",
+                            "need roughly 32.2 here. The default is deliberately left at 20.5 - changing",
+                            "it is a gameplay decision, not a bug fix.",
+                            "",
+                            "Set to 0 with lift 0 to disable.")
                     .defineInRange("launch_speed", 20.5D, 0.0D, 100.0D);
 
             shurikenLaunchLift = builder

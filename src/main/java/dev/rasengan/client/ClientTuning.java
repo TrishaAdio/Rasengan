@@ -65,7 +65,18 @@ public final class ClientTuning {
             return 1.0F;
         }
         double t = (distance - fullDetail) / Math.max(1.0D, maxDistance - fullDetail);
-        return (float) Math.clamp(1.0D - t, 0.08D, 1.0D);
+        float factor = (float) Math.clamp(1.0D - t, 0.08D, 1.0D);
+
+        // The 0.08 floor keeps distant casts faintly visible, but on its own it meant the effect
+        // stepped from 8% opacity straight to nothing at exactly maxDistance. Fade the floor out
+        // over the last few blocks so the effect leaves the world continuously instead of popping.
+        final double cutoffBand = 8.0D;
+        double cutoffStart = Math.max(fullDetail, maxDistance - cutoffBand);
+        if (distance > cutoffStart) {
+            double k = (distance - cutoffStart) / Math.max(1.0E-6D, maxDistance - cutoffStart);
+            factor *= (float) Math.clamp(1.0D - k, 0.0D, 1.0D);
+        }
+        return factor;
     }
 
     /**

@@ -60,7 +60,12 @@ public final class ClientEffects {
         // Re-triggered every few ticks with a rising pitch, in step with the blade extension and
         // spin-up, so the audio rise and the visual acceleration peak together.
         if (cast.ability.isShuriken() && !cast.isCancelled() && !cast.isReleased()) {
-            float spinTime = Math.max(0.0F, cast.age(gameTime, 1.0F) - cast.castDuration * 0.55F);
+            // The same absolute blade-snap tick the renderer uses. This previously read
+            // castDuration * 0.55, which at the default 100 tick cast evaluated to 55 rather than
+            // 70: the pitch ramp finished climbing at tick 66, four ticks BEFORE the blades began
+            // to move, so the audio peaked against a still-forming shell.
+            float spinTime = Math.max(0.0F,
+                    cast.age(gameTime, 1.0F) - dev.rasengan.AbilityType.BLADE_SNAP_TICK);
             float spinFraction = OrbitMath.smoothstep(0.0F, ShurikenRenderer.SPINUP_TICKS, spinTime);
             if (spinTime > 0.0F && gameTime % 3L == 0L) {
                 playScreechStep(level, sphere, spinFraction);

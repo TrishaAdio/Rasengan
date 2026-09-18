@@ -185,10 +185,13 @@ public final class RasenganRenderer {
 
             if (shuriken) {
                 // Disc plane faces where the caster is aiming, so the star reads as a held weapon.
-                Vec3 spinAxis = player.getLookAngle();
-                // Absolute tick age, so the blade snap lands on ShurikenRenderer.BLADE_SNAP_TICK
+                // getViewVector(partialTick) interpolates the caster's rotation, where getLookAngle()
+                // reads only the current tick's value - which snapped the whole disc plane 20 times a
+                // second while the player turned, tilting a rigid spinning object in visible steps.
+                Vec3 spinAxis = player.getViewVector(partialTick);
+                // Absolute tick age, so the blade snap lands on AbilityType.BLADE_SNAP_TICK
                 // (tick 70 = 3.5s) exactly, matching the audio transition.
-                float spinTime = Math.max(0.0F, time - ShurikenRenderer.BLADE_SNAP_TICK);
+                float spinTime = Math.max(0.0F, time - AbilityType.BLADE_SNAP_TICK);
                 ShurikenRenderer.submit(poseStack, collector, spherePos, cameraPos, spinAxis,
                         time, spinTime, intensity * distanceFactor, quality,
                         cast.seed, false);
@@ -652,8 +655,11 @@ public final class RasenganRenderer {
                 Vec3 spinAxis = velocity0.lengthSqr() > 1.0E-6D
                         ? velocity0.normalize()
                         : new Vec3(0.0D, 1.0D, 0.0D);
+                // spinTicks(partialTick), never spinTicks(): the raw form is whole-tick only and
+                // would quantise the whole assembly - spin, flex, vibration, wisps, mist, breathing
+                // - to 20 Hz, jumping 48.7 degrees per tick instead of rotating smoothly.
                 ShurikenRenderer.submit(poseStack, collector, pos, cameraPos, spinAxis,
-                        Float.MAX_VALUE, projectile.spinTicks(), distanceFactor, quality,
+                        Float.MAX_VALUE, projectile.spinTicks(partialTick), distanceFactor, quality,
                         seed, true);
                 continue;
             }
@@ -662,7 +668,11 @@ public final class RasenganRenderer {
             // rings and helices do not jump to a different rotation phase at the moment of release.
             // The held sphere's clock reads castDuration ticks at release, so the projectile picks
             // up from exactly there. No extra syncing needed: lifeTicks advances on both sides.
-            float time = RasenganConfig.castDurationTicks() + projectile.lifeTicks() + partialTick;
+            // Ability-aware: this branch only ever runs for RASENGAN, but reading the no-arg
+            // accessor hard-coded that assumption into the clock. Asking for the projectile's own
+            // ability keeps the handoff correct if the two durations are ever configured apart.
+            float time = RasenganConfig.castDurationTicks(projectile.ability())
+                    + projectile.lifeTicks() + partialTick;
 
             // Full size from frame one. Any spawn-in ramp here would read as a pop, because the
             // held sphere hands over at exactly FULL_RADIUS.
