@@ -8,6 +8,9 @@ import dev.rasengan.network.RasenganPayloads;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -63,8 +66,16 @@ public class RasenganProjectile extends Entity {
     /** Deterministic visual seed, mirrored from the cast so the sphere looks continuous. */
     private long visualSeed;
 
-    /** Which technique this projectile is, driving both its tuning and its client visual. */
-    private AbilityType ability = AbilityType.RASENGAN;
+    /**
+     * Which technique this projectile is.
+     *
+     * <p>Stored in {@link SynchedEntityData}, not a plain field. A plain field is only ever set on
+     * the server, and entity spawn packets do not carry NBT, so every client saw the default value -
+     * which is why a thrown Rasen Shuriken rendered as a Rasengan sphere. Synched data is replicated
+     * on spawn and on change, so all nearby clients get the real variant.
+     */
+    private static final EntityDataAccessor<Integer> DATA_ABILITY =
+            SynchedEntityData.defineId(RasenganProjectile.class, EntityDataSerializers.INT);
 
     private int lifeTicks;
     private double travelled;
@@ -99,7 +110,7 @@ public class RasenganProjectile extends Entity {
         projectile.ownerUuid = owner.getUUID();
         projectile.ownerId = owner.getId();
         projectile.visualSeed = seed;
-        projectile.ability = ability;
+        projectile.setAbility(ability);
 
         double speed = RasenganConfig.projectileSpeed(ability);
         projectile.setDeltaMovement(direction.normalize().scale(speed));
@@ -119,9 +130,9 @@ public class RasenganProjectile extends Entity {
 
     @Override
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
-        // Nothing needs syncing beyond position and rotation, which the entity tracker already
-        // sends. The visual seed is derived client-side from the entity UUID, which arrives with
-        // the spawn packet, so it costs no extra bandwidth.
+        // The ability MUST be here rather than a plain field: it is read client-side by the
+        // renderer, and only synched data reaches the client on spawn.
+        builder.define(DATA_ABILITY, AbilityType.RASENGAN.id());
     }
 
     @Override
@@ -130,7 +141,7 @@ public class RasenganProjectile extends Entity {
         this.travelled = input.getDoubleOr("Travelled", 0.0D);
         this.visualSeed = input.getLongOr("VisualSeed", 0L);
         this.ownerId = input.getIntOr("OwnerId", -1);
-        this.ability = AbilityType.byId(input.getIntOr("Ability", 0));
+        setAbility(AbilityType.byId(input.getIntOr("Ability", 0)));
     }
 
     @Override
@@ -139,7 +150,7 @@ public class RasenganProjectile extends Entity {
         output.putDouble("Travelled", travelled);
         output.putLong("VisualSeed", visualSeed);
         output.putInt("OwnerId", ownerId);
-        output.putInt("Ability", ability.id());
+        output.putInt("Ability", ability().id());
     }
 
     /** The sphere is pure energy: nothing can damage it, so it can never be destroyed early. */
@@ -174,8 +185,13 @@ public class RasenganProjectile extends Entity {
         return lifeTicks;
     }
 
+    /** Reads the replicated ability. Correct on both sides. */
     public AbilityType ability() {
-        return ability;
+        return AbilityType.byId(this.entityData.get(DATA_ABILITY));
+    }
+
+    private void setAbility(AbilityType ability) {
+        this.entityData.set(DATA_ABILITY, ability.id());
     }
 
     /**
@@ -213,7 +229,7 @@ public class RasenganProjectile extends Entity {
 
         // ---- Lifetime and range limits: nothing is allowed to fly forever ----
         if (lifeTicks > RasenganConfig.projectileLifetimeTicks()
-                || travelled > RasenganConfig.projectileMaxRange(ability)) {
+                || travelled > RasenganConfig.projectileMaxRange(ability())) {
             expire(serverLevel);
             return;
         }
@@ -234,7 +250,7 @@ public class RasenganProjectile extends Entity {
                 : intendedEnd;
 
         // ---- 2. Continuous entity sweep along that segment ----
-        double radius = RasenganConfig.hitboxSize(ability);
+        double radius = RasenganConfig.hitboxSize(ability());
         EntityHit entityHit = sweepForEntity(serverLevel, start, segmentEnd, radius);
 
         if (entityHit != null) {
@@ -374,13 +390,24 @@ public class RasenganProjectile extends Entity {
         resolved = true;
 
         ServerPlayer owner = owner(level);
+
+        // Capture the flight direction before anything zeroes our velocity.
+        Vec3 flight = getDeltaMovement();
+
+        // Damage FIRST. hurtServer applies its own knockback, so setting velocity beforehand would
+        // simply be overwritten by the damage resolution in the same tick.
         applyDamage(level, owner, target);
+
+        // Then the launch, so ours is the velocity that survives.
+        if (ability().isShuriken()) {
+            applyLaunch(level, target, flight);
+        }
 
         // Broadcast before discarding, and regardless of whether the target survived, so the
         // full impact animation always plays.
         ServerCastManager.broadcastImpact(level, point,
                 owner != null ? owner.getId() : getId(),
-                RasenganPayloads.CastImpact.KIND_ENTITY, ability, spinTicks());
+                RasenganPayloads.CastImpact.KIND_ENTITY, ability(), spinTicks());
 
         if (RasenganConfig.SERVER.blockDamageEnabled.get()) {
             ServerCastManager.applyEnvironmentDamage(level, owner, point);
@@ -398,7 +425,7 @@ public class RasenganProjectile extends Entity {
         ServerPlayer owner = owner(level);
         ServerCastManager.broadcastImpact(level, point,
                 owner != null ? owner.getId() : getId(),
-                RasenganPayloads.CastImpact.KIND_TERRAIN, ability, spinTicks());
+                RasenganPayloads.CastImpact.KIND_TERRAIN, ability(), spinTicks());
 
         if (RasenganConfig.SERVER.blockDamageEnabled.get()) {
             ServerCastManager.applyEnvironmentDamage(level, owner, point);
@@ -416,7 +443,7 @@ public class RasenganProjectile extends Entity {
         ServerPlayer owner = owner(level);
         ServerCastManager.broadcastImpact(level, position(),
                 owner != null ? owner.getId() : getId(),
-                RasenganPayloads.CastImpact.KIND_WHIFF, ability, spinTicks());
+                RasenganPayloads.CastImpact.KIND_WHIFF, ability(), spinTicks());
         cleanUp();
     }
 
@@ -432,7 +459,60 @@ public class RasenganProjectile extends Entity {
         if (RasenganConfig.SERVER.bypassInvulnerabilityFrames.get()) {
             target.invulnerableTime = 0;
         }
-        target.hurtServer(level, source, (float) RasenganConfig.damage(ability));
+        target.hurtServer(level, source, (float) RasenganConfig.damage(ability()));
+    }
+
+    /**
+     * Launches the struck entity on a long ballistic arc.
+     *
+     * <h2>Why an absolute set, not a push</h2>
+     * {@code push()} and vanilla knockback both <em>add</em> a small impulse and are scaled down by
+     * the target's {@code KNOCKBACK_RESISTANCE} attribute - an iron golem or armoured mob absorbs
+     * most of it. {@link Entity#setDeltaMovement} writes the velocity outright, so the launch is
+     * exact and resistance-independent by construction.
+     *
+     * <h2>Why players need an explicit packet</h2>
+     * Players simulate their own movement and reconcile against the server. A server-side velocity
+     * write is invisible to them: their client keeps predicting from its own state and the launch is
+     * discarded, so a hit player barely moves while mobs fly. {@link ClientboundSetEntityMotionPacket}
+     * tells that client to adopt the velocity. For non-players, {@code hurtMarked} makes the tracker
+     * broadcast the same packet to observers.
+     *
+     * <h2>Magnitude</h2>
+     * Derived from Minecraft's own air physics rather than a guessed multiplier. Per tick a living
+     * entity has {@code vy = (vy - 0.08) * 0.98} and {@code vx *= 0.91}, so horizontal travel
+     * converges to {@code vx / (1 - 0.91)} - about {@code 11.1 * vx}. The defaults below were solved
+     * numerically against that model for roughly 225 blocks with a ~20 block peak.
+     */
+    private void applyLaunch(ServerLevel level, LivingEntity target, Vec3 flight) {
+        double horizontalSpeed = RasenganConfig.SERVER.shurikenLaunchSpeed.get();
+        double lift = RasenganConfig.SERVER.shurikenLaunchLift.get();
+        if (horizontalSpeed <= 0.0D && lift <= 0.0D) {
+            return; // launch disabled by config
+        }
+
+        // Flatten the flight vector: the arc's direction comes from where the shuriken was
+        // travelling, but its climb comes from `lift`, so a downward shot still launches upward
+        // rather than driving the target into the ground.
+        Vec3 horizontal = new Vec3(flight.x, 0.0D, flight.z);
+        if (horizontal.lengthSqr() < 1.0E-6D) {
+            horizontal = new Vec3(0.0D, 0.0D, 1.0D);
+        }
+        horizontal = horizontal.normalize();
+
+        Vec3 launch = new Vec3(
+                horizontal.x * horizontalSpeed,
+                lift,
+                horizontal.z * horizontalSpeed);
+
+        target.setDeltaMovement(launch);
+        // Tells the entity tracker this velocity is authoritative and must be broadcast.
+        target.hurtMarked = true;
+
+        if (target instanceof ServerPlayer player) {
+            // Without this the player's own prediction discards the launch entirely.
+            player.connection.send(new ClientboundSetEntityMotionPacket(target));
+        }
     }
 
     /** Removes the entity immediately so no scheduled state outlives the impact. */

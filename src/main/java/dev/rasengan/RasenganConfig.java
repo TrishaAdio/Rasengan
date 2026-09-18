@@ -59,6 +59,8 @@ public final class RasenganConfig {
         public final ModConfigSpec.DoubleValue shurikenSpeed;
         public final ModConfigSpec.DoubleValue shurikenHitboxSize;
         public final ModConfigSpec.DoubleValue shurikenMaxRange;
+        public final ModConfigSpec.DoubleValue shurikenLaunchSpeed;
+        public final ModConfigSpec.DoubleValue shurikenLaunchLift;
 
         // ---- Cosmetic caps (synced to clients) ----
         public final ModConfigSpec.DoubleValue particleDensity;
@@ -161,6 +163,18 @@ public final class RasenganConfig {
             shurikenMaxRange = builder
                     .comment("Maximum distance in blocks before it fizzles out.")
                     .defineInRange("max_range", 80.0D, 4.0D, 256.0D);
+
+            shurikenLaunchSpeed = builder
+                    .comment("Horizontal launch velocity applied to a struck entity, in blocks per tick.",
+                            "Minecraft air friction multiplies horizontal speed by 0.91 each tick, so total",
+                            "travel converges to speed / (1 - 0.91), about 11.1x this value.",
+                            "20.5 therefore lands around 225 blocks. Set to 0 with lift 0 to disable.")
+                    .defineInRange("launch_speed", 20.5D, 0.0D, 100.0D);
+
+            shurikenLaunchLift = builder
+                    .comment("Upward launch velocity in blocks per tick. 2.0 gives roughly a 20 block",
+                            "peak and about 2.3 seconds of airtime, so the target arcs up, forward, then down.")
+                    .defineInRange("launch_lift", 2.0D, 0.0D, 10.0D);
 
             builder.pop().push("environment");
 
