@@ -68,10 +68,15 @@ public final class ShurikenRenderer {
     /** Tip vibration amplitude in radians. Small enough never to break the silhouette. */
     private static final float VIBRATION_AMPLITUDE = 0.055F;
 
-    // ---- Formation beats, as fractions of the formation window ----
-    private static final float BEAT_CORE_END = 0.18F;
-    private static final float BEAT_SHELL_END = 0.55F;
-    private static final float BEAT_BLADES_END = 0.72F;
+    // ---- Formation beats, in ABSOLUTE ticks from cast start ----
+    // Deliberately absolute rather than fractions of the cast window. The blade snap has to land on
+    // the same tick as the 3.5 second transition in the audio, and a fraction would silently drift
+    // that sync the moment anyone changed the cast duration in config.
+    /** Blades snap out here: tick 70 = 3.5s at 20 ticks/s, locked to the audio transition. */
+    public static final float BLADE_SNAP_TICK = 70.0F;
+    private static final float BEAT_CORE_END_TICK = 14.0F;
+    private static final float BEAT_SHELL_END_TICK = BLADE_SNAP_TICK;
+    private static final float BEAT_BLADES_END_TICK = BLADE_SNAP_TICK + 8.0F;
 
     private ShurikenRenderer() {}
 
@@ -115,13 +120,13 @@ public final class ShurikenRenderer {
      * @param worldPos  centre in world space
      * @param spinAxis  unit vector the assembly spins about; also the disc's normal, so the star
      *                  faces along the aim or flight direction
-     * @param formProgress 0..1 through the formation sequence; 1 means fully formed
+     * @param ageTicks  ticks since cast start, including the partial tick
      * @param spinTime  ticks since the blades began extending, driving the wind-up
      * @param quality   0..1 level of detail; only mist and wisps are reduced, never the silhouette
      */
     public static void submit(PoseStack poseStack, SubmitNodeCollector collector,
                              Vec3 worldPos, Vec3 cameraPos, Vec3 spinAxis,
-                             float formProgress, float spinTime, float intensity,
+                             float ageTicks, float spinTime, float intensity,
                              float quality, long seed, boolean inFlight) {
         if (intensity <= 0.01F) {
             return;
@@ -143,7 +148,7 @@ public final class ShurikenRenderer {
         final float ay = (float) spinAxis.y;
         final float az = (float) spinAxis.z;
 
-        final float fProgress = Math.clamp(formProgress, 0.0F, 1.0F);
+        final float fAge = ageTicks;
         final float fSpin = spinTime;
         final float fIntensity = intensity;
         final float fQuality = quality;
@@ -152,7 +157,7 @@ public final class ShurikenRenderer {
         collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) -> {
             CAM.set(camX, camY, camZ);
             setBasis(ax, ay, az);
-            emitAssembly(pose, buffer, fProgress, fSpin, fIntensity, fQuality, seed, fFlight);
+            emitAssembly(pose, buffer, fAge, fSpin, fIntensity, fQuality, seed, fFlight);
         });
 
         poseStack.popPose();
@@ -174,17 +179,29 @@ public final class ShurikenRenderer {
     // ------------------------------------------------------------------
 
     private static void emitAssembly(PoseStack.Pose pose, VertexConsumer buffer,
-                                     float progress, float spinTime, float intensity,
+                                     float ageTicks, float spinTime, float intensity,
                                      float quality, long seed, boolean inFlight) {
 
-        // ---- Beat 1: core forms ----
-        float coreScale = OrbitMath.easeOut(OrbitMath.smoothstep(0.0F, BEAT_CORE_END, progress));
-        // ---- Beat 2: shell expands, ease-out ----
-        float shellScale = OrbitMath.easeOut(
-                OrbitMath.smoothstep(BEAT_CORE_END * 0.8F, BEAT_SHELL_END, progress));
-        // ---- Beat 3: blades snap out, sharper ease-out over a much shorter window ----
-        float bladeRaw = OrbitMath.smoothstep(BEAT_SHELL_END, BEAT_BLADES_END, progress);
-        float bladeScale = OrbitMath.easeOut(OrbitMath.easeOut(bladeRaw));
+        // In flight the assembly is always complete, so the formation beats are skipped entirely
+        // rather than being re-evaluated against a projectile's own age.
+        float coreScale;
+        float shellScale;
+        float bladeScale;
+
+        if (inFlight) {
+            coreScale = 1.0F;
+            shellScale = 1.0F;
+            bladeScale = 1.0F;
+        } else {
+            // ---- Beat 1: core forms ----
+            coreScale = OrbitMath.easeOut(OrbitMath.smoothstep(0.0F, BEAT_CORE_END_TICK, ageTicks));
+            // ---- Beat 2: shell expands, ease-out, finishing exactly as the blades snap ----
+            shellScale = OrbitMath.easeOut(
+                    OrbitMath.smoothstep(BEAT_CORE_END_TICK * 0.8F, BEAT_SHELL_END_TICK, ageTicks));
+            // ---- Beat 3: blades snap out - double ease-out over only 8 ticks ----
+            float bladeRaw = OrbitMath.smoothstep(BEAT_SHELL_END_TICK, BEAT_BLADES_END_TICK, ageTicks);
+            bladeScale = OrbitMath.easeOut(OrbitMath.easeOut(bladeRaw));
+        }
 
         float angle = spinAngle(spinTime, SPINUP_TICKS);
 

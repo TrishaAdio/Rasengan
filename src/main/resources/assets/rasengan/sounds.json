@@ -1,0 +1,20 @@
+{
+  "rasenshuriken_form": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rasengan:rasenshuriken_form",
+        "stream": false
+      }
+    ]
+  },
+  "rasenshuriken_spin": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rasengan:rasenshuriken_spin",
+        "stream": false
+      }
+    ]
+  }
+}

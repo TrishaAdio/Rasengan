@@ -53,7 +53,17 @@ public final class RasenganClient {
                     if (level != null) {
                         var entity = level.getEntity(start.casterId());
                         if (entity != null) {
-                            ClientEffects.playCastStartSound(level, entity.position());
+                            if (dev.rasengan.AbilityType.byId(start.ability()).isShuriken()) {
+                                // Formation swell, started on the very first tick of the cast so it
+                                // is synchronised with the core beginning to form. Entity-bound so
+                                // it tracks the caster if they move while charging.
+                                Minecraft.getInstance().getSoundManager().play(
+                                        new ShurikenSoundInstance(
+                                                dev.rasengan.RasenganSounds.SHURIKEN_FORM.get(),
+                                                entity, 1.0F, 1.0F, false));
+                            } else {
+                                ClientEffects.playCastStartSound(level, entity.position());
+                            }
                         }
                     }
                 }

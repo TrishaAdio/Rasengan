@@ -61,6 +61,7 @@ public final class RasenganConfig {
         public final ModConfigSpec.DoubleValue shurikenMaxRange;
         public final ModConfigSpec.DoubleValue shurikenLaunchSpeed;
         public final ModConfigSpec.DoubleValue shurikenLaunchLift;
+        public final ModConfigSpec.IntValue shurikenCastDurationTicks;
 
         // ---- Cosmetic caps (synced to clients) ----
         public final ModConfigSpec.DoubleValue particleDensity;
@@ -176,6 +177,13 @@ public final class RasenganConfig {
                             "peak and about 2.3 seconds of airtime, so the target arcs up, forward, then down.")
                     .defineInRange("launch_lift", 2.0D, 0.0D, 10.0D);
 
+            shurikenCastDurationTicks = builder
+                    .comment("Ticks from activation to release for Rasen Shuriken (20 ticks = 1s).",
+                            "MUST be greater than 70. The blades snap out at tick 70 (3.5 seconds) to",
+                            "match the transition in the formation audio, so a shorter cast would launch",
+                            "before the blades had formed. Default 100 = 5.0s: 3.5s forming, 1.5s held.")
+                    .defineInRange("cast_duration_ticks", 100, 71, 400);
+
             builder.pop().push("environment");
 
             blockDamageEnabled = builder
@@ -259,6 +267,12 @@ public final class RasenganConfig {
 
     public static int castDurationTicks() {
         return SERVER.castDurationTicks.get();
+    }
+
+    public static int castDurationTicks(dev.rasengan.AbilityType ability) {
+        return ability.isShuriken()
+                ? SERVER.shurikenCastDurationTicks.get()
+                : SERVER.castDurationTicks.get();
     }
 
     public static int cooldownTicks() {

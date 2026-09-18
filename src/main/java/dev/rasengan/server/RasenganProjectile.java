@@ -199,7 +199,12 @@ public class RasenganProjectile extends Entity {
      * phase carries across the throw rather than restarting.
      */
     public float spinTicks() {
-        return RasenganConfig.castDurationTicks() + lifeTicks;
+        // Continues the held clock: the held phase began spinning at cast tick 70, so by release
+        // (cast duration) it had been spinning for (castDuration - 70) ticks. Carrying that forward
+        // keeps the rotation phase and the wind-up continuous across the throw.
+        float heldSpin = Math.max(0.0F,
+                RasenganConfig.castDurationTicks(ability()) - 70.0F);
+        return heldSpin + lifeTicks;
     }
 
     // ------------------------------------------------------------------

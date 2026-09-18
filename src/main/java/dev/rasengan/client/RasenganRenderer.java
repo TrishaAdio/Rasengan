@@ -186,12 +186,11 @@ public final class RasenganRenderer {
             if (shuriken) {
                 // Disc plane faces where the caster is aiming, so the star reads as a held weapon.
                 Vec3 spinAxis = player.getLookAngle();
-                float formProgress = cast.progress(gameTime, partialTick);
-                // The spin clock starts when the blades begin extending, not when the cast begins,
-                // so the wind-up is synchronised to the visual unfurl.
-                float spinTime = Math.max(0.0F, time - cast.castDuration * 0.55F);
+                // Absolute tick age, so the blade snap lands on ShurikenRenderer.BLADE_SNAP_TICK
+                // (tick 70 = 3.5s) exactly, matching the audio transition.
+                float spinTime = Math.max(0.0F, time - ShurikenRenderer.BLADE_SNAP_TICK);
                 ShurikenRenderer.submit(poseStack, collector, spherePos, cameraPos, spinAxis,
-                        formProgress, spinTime, intensity * distanceFactor, quality,
+                        time, spinTime, intensity * distanceFactor, quality,
                         cast.seed, false);
                 continue;
             }
@@ -654,7 +653,8 @@ public final class RasenganRenderer {
                         ? velocity0.normalize()
                         : new Vec3(0.0D, 1.0D, 0.0D);
                 ShurikenRenderer.submit(poseStack, collector, pos, cameraPos, spinAxis,
-                        1.0F, projectile.spinTicks(), distanceFactor, quality, seed, true);
+                        Float.MAX_VALUE, projectile.spinTicks(), distanceFactor, quality,
+                        seed, true);
                 continue;
             }
 

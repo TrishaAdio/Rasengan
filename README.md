@@ -57,7 +57,7 @@ These are the things that changed most recently and that the code depends on:
 
 1. Install **Java 25**.
 2. Install the **NeoForge 26.1.2.109** client profile from <https://neoforged.net>.
-3. Drop `rasengan-1.3.1.jar` into `.minecraft/mods/`.
+3. Drop `rasengan-1.4.0.jar` into `.minecraft/mods/`.
 4. Launch the NeoForge 26.1.2 profile.
 5. Optionally rebind the ability key: **Options → Controls → Gameplay → "Cast Rasengan"**
    (default **`R`**).
@@ -66,7 +66,7 @@ These are the things that changed most recently and that the code depends on:
 
 1. Install **Java 25** on the host.
 2. Install the NeoForge **26.1.2.109** server.
-3. Drop `rasengan-1.3.1.jar` into `mods/`.
+3. Drop `rasengan-1.4.0.jar` into `mods/`.
 4. Start the server once. It writes `config/rasengan-server.toml`.
 5. Edit that file, then restart (or use `/reload` for the values read per-cast).
 
@@ -560,7 +560,7 @@ cd rasengan
 ./gradlew build
 ```
 
-Output: `build/libs/rasengan-1.3.1.jar`.
+Output: `build/libs/rasengan-1.4.0.jar`.
 
 Requires **JDK 25** on `PATH` (or discoverable by Gradle's toolchain detection). The wrapper
 fetches Gradle 9.7.1 automatically. The first build downloads and decompiles Minecraft, which
@@ -594,7 +594,7 @@ python3 tools/generate_particle_textures.py
 
 | Check | Result |
 |---|---|
-| `./gradlew build` | Passes; produces `rasengan-1.3.1.jar`. |
+| `./gradlew build` | Passes; produces `rasengan-1.4.0.jar`. |
 | Dedicated server boot | `Done (0.206s)!` on `minecraft server version 26.1.2`, mod loaded as `Rasengan 1.0.0 (rasengan)`. No `NoClassDefFoundError` / `ClassNotFoundException`. |
 | Client-class isolation | `javap` over every compiled class: of 20 non-client classes, **zero** reference `net/minecraft/client/*`, and exactly **one** references `dev/rasengan/client/` — `Rasengan` → `RasenganClient`, inside the `Dist.CLIENT` branch. |
 | Config generation | `config/rasengan-server.toml` written with every documented option and the correct defaults, including `block_damage_enabled = false`. |

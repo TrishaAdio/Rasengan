@@ -39,6 +39,7 @@ public final class Rasengan {
         RasenganAttachments.REGISTRY.register(modBus);
         RasenganParticles.REGISTRY.register(modBus);
         RasenganEntities.REGISTRY.register(modBus);
+        RasenganSounds.REGISTRY.register(modBus);
 
         modBus.addListener(Rasengan::registerPayloads);
 

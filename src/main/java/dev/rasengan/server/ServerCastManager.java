@@ -108,7 +108,7 @@ public final class ServerCastManager {
         }
 
         // ---- Commit ----
-        int duration = RasenganConfig.castDurationTicks();
+        int duration = RasenganConfig.castDurationTicks(ability);
         long seed = player.level().getRandom().nextLong();
         boolean mainHand = true;
         Vec3 direction = player.getLookAngle().normalize();
