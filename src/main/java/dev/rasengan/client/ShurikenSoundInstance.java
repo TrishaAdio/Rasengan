@@ -31,7 +31,7 @@ public class ShurikenSoundInstance extends AbstractTickableSoundInstance {
     private final Entity source;
 
     /** Ticks to ramp volume in, so starting the loop does not click. */
-    private static final float FADE_IN_TICKS = 3.0F;
+    private static final float FADE_IN_TICKS = 2.0F;
 
     private final float targetVolume;
     private int age;
@@ -48,6 +48,30 @@ public class ShurikenSoundInstance extends AbstractTickableSoundInstance {
         this.delay = 0;
         this.volume = 0.0F;
         syncPosition();
+    }
+
+    /**
+     * Permits the sound to begin at zero volume.
+     *
+     * <p><b>Required, not optional.</b> {@code SoundEngine} discards any sound whose volume is zero
+     * at the moment it is played:
+     *
+     * <pre>
+     *   if (volume == 0.0F) {
+     *       if (!instance.canStartSilent() &amp;&amp; soundSource != SoundSource.MUSIC) {
+     *           LOGGER.debug("Skipped playing sound {}, volume was zero.");
+     *           return PlayResult.NOT_STARTED;
+     *       }
+     *   }
+     * </pre>
+     *
+     * <p>This instance deliberately starts silent and ramps up over {@link #FADE_IN_TICKS} so the
+     * loop does not begin with a click. Without this override the engine dropped every sound before
+     * it started, and nothing was ever audible - the fade-in was silently defeating itself.
+     */
+    @Override
+    public boolean canStartSilent() {
+        return true;
     }
 
     private void syncPosition() {
