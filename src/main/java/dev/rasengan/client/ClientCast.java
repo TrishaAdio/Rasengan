@@ -2,21 +2,31 @@ package dev.rasengan.client;
 
 import dev.rasengan.client.OrbitMath.Layer;
 import net.minecraft.world.phys.Vec3;
-import org.joml.Vector3f;
 
 /**
- * Client-side record of one cast in progress. Purely cosmetic - deleting one has no gameplay
- * effect whatsoever.
+ * Client-side record of the <em>held</em> phase of one cast. Purely cosmetic.
+ *
+ * <h2>One sphere, one owner at a time</h2>
+ * This record owns the sphere only while it is in the caster's hand. The moment the server says the
+ * cast was released, {@link #markReleased(long)} is called and this record stops drawing a sphere
+ * entirely - ownership of the single visual passes to the
+ * {@link dev.rasengan.server.RasenganProjectile} entity.
+ *
+ * <p>That handoff is why this class no longer knows anything about impacts. Previously it tracked an
+ * impact position and glided the held sphere toward it after release, which is exactly what produced
+ * two spheres on screen: the glided hand sphere hanging in the air while the real projectile flew
+ * off on its own. Impacts are now tracked separately in {@link ClientImpactTracker} and drawn at the
+ * projectile's actual contact point.
  *
  * <h2>Timeline</h2>
- * All phase boundaries are fractions of the server-supplied {@code castDuration}, so changing
- * {@code cast_duration_ticks} in the server config rescales the whole animation coherently.
+ * Phase boundaries are fractions of the server-supplied {@code castDuration}, so changing
+ * {@code cast_duration_ticks} rescales the whole animation coherently.
  * <pre>
  *   0.00 .. 0.30  PREPARE : palm glow, inward-pulling motes, aura fades in
  *   0.30 .. 0.75  FORM    : shell scales up, bands and trails spin up
- *   0.75 .. 1.00  HOLD    : full sphere, maximum instability
- *   1.00          RELEASE : thrust forward toward the impact point
- *   +18 ticks     IMPACT  : implosion, burst, shockwave rings, then removal
+ *   0.75 .. 1.00  HOLD    : full sphere at full radius
+ *   1.00          RELEASE : sphere rendering STOPS here; the projectile continues it
+ *   +6 ticks      aura finishes fading, record is discarded
  * </pre>
  */
 public final class ClientCast {
@@ -24,11 +34,8 @@ public final class ClientCast {
     public static final float PHASE_FORM_START = 0.30F;
     public static final float PHASE_HOLD_START = 0.75F;
 
-    /** Ticks the sphere takes to travel from the hand to the impact point. */
-    public static final float RELEASE_TRAVEL_TICKS = 3.0F;
-
-    /** Ticks the impact animation runs for after release. */
-    public static final float IMPACT_TICKS = 18.0F;
+    /** Ticks the body aura takes to fade out after release or cancellation. */
+    public static final float FADE_TICKS = 6.0F;
 
     /** Grace period before an un-ended cast self-expires, so nothing can ever stick. */
     private static final float ORPHAN_GRACE_TICKS = 40.0F;
@@ -51,10 +58,7 @@ public final class ClientCast {
 
     // ---- Mutable progression ----
     private boolean released;
-    private Vec3 releaseOrigin;
-    private Vec3 impactPos;
-    private long impactGameTime = Long.MIN_VALUE;
-    private int hitKind;
+    private long releaseGameTime = Long.MIN_VALUE;
     private boolean cancelled;
     private long cancelGameTime = Long.MIN_VALUE;
 
@@ -90,105 +94,80 @@ public final class ClientCast {
         return cancelled;
     }
 
-    public void markReleased() {
-        this.released = true;
-    }
-
-    public void setReleaseOrigin(Vec3 origin) {
-        if (this.releaseOrigin == null) {
-            this.releaseOrigin = origin;
+    /** The sphere has left the hand. Nothing here draws a sphere from this point on. */
+    public void markReleased(long gameTime) {
+        if (!this.released) {
+            this.released = true;
+            this.releaseGameTime = gameTime;
         }
-    }
-
-    public Vec3 releaseOrigin() {
-        return releaseOrigin;
-    }
-
-    public void applyImpact(Vec3 pos, int kind, long gameTime) {
-        this.impactPos = pos;
-        this.hitKind = kind;
-        this.impactGameTime = gameTime;
-        this.released = true;
     }
 
     public void applyCancel(long gameTime) {
-        this.cancelled = true;
-        this.cancelGameTime = gameTime;
-    }
-
-    public Vec3 impactPos() {
-        return impactPos;
-    }
-
-    public int hitKind() {
-        return hitKind;
-    }
-
-    public boolean hasImpact() {
-        return impactPos != null;
-    }
-
-    /** Ticks elapsed since impact, or -1 if it has not happened yet. */
-    public float impactAge(long gameTime, float partialTick) {
-        if (impactGameTime == Long.MIN_VALUE) {
-            return -1.0F;
+        if (!this.cancelled) {
+            this.cancelled = true;
+            this.cancelGameTime = gameTime;
         }
-        return (gameTime - impactGameTime) + partialTick;
     }
 
     /**
      * Whether this record should be discarded.
      *
      * <p>Three independent exits, so a lost or never-sent packet cannot leave a permanent effect:
-     * the impact animation finishing, a cancel fading out, or the orphan timeout.
+     * release, cancellation, or the orphan timeout. Note how short the post-release window is - it
+     * exists only to let the body aura fade, not to keep a sphere alive.
      */
     public boolean isExpired(long gameTime) {
         if (cancelled && cancelGameTime != Long.MIN_VALUE) {
-            return (gameTime - cancelGameTime) > 5;
+            return (gameTime - cancelGameTime) > FADE_TICKS;
         }
-        if (impactGameTime != Long.MIN_VALUE) {
-            return (gameTime - impactGameTime) > IMPACT_TICKS;
+        if (released && releaseGameTime != Long.MIN_VALUE) {
+            return (gameTime - releaseGameTime) > FADE_TICKS;
         }
-        return (gameTime - startGameTime) > castDuration + IMPACT_TICKS + ORPHAN_GRACE_TICKS;
+        return (gameTime - startGameTime) > castDuration + ORPHAN_GRACE_TICKS;
     }
 
     /**
-     * Overall visual intensity 0..1: ramps in during PREPARE, holds, then falls off after
-     * release or cancellation so the aura always disappears cleanly.
+     * Aura intensity 0..1: ramps in during PREPARE, holds, then falls off after release or
+     * cancellation so the aura always disappears cleanly.
+     *
+     * <p>Only the aura uses this. The sphere is not faded on release - it is handed over.
      */
-    public float intensity(long gameTime, float partialTick) {
+    public float auraFade(long gameTime, float partialTick) {
         if (cancelled) {
             float since = cancelGameTime == Long.MIN_VALUE ? 0.0F : (gameTime - cancelGameTime) + partialTick;
-            return Math.max(0.0F, 1.0F - since / 5.0F);
+            return Math.max(0.0F, 1.0F - since / FADE_TICKS);
         }
-        float impactAge = impactAge(gameTime, partialTick);
-        if (impactAge >= 0.0F) {
-            // The sphere itself is gone at impact; only the burst remains.
-            return Math.max(0.0F, 1.0F - impactAge / 4.0F);
+        if (released) {
+            float since = releaseGameTime == Long.MIN_VALUE ? 0.0F : (gameTime - releaseGameTime) + partialTick;
+            return Math.max(0.0F, 1.0F - since / FADE_TICKS);
         }
-        float progress = progress(gameTime, partialTick);
-        return OrbitMath.smoothstep(0.0F, PHASE_FORM_START * 0.8F, progress);
+        return OrbitMath.smoothstep(0.0F, PHASE_FORM_START * 0.8F, progress(gameTime, partialTick));
     }
 
     /**
-     * Sphere radius in blocks at this moment: grows through FORM, holds, then implodes sharply
-     * in the last moments before the burst.
+     * Held-sphere brightness. Zero once released, because the projectile owns the visual from then
+     * on and two overlapping sources would be a duplicate.
+     */
+    public float sphereIntensity(long gameTime, float partialTick) {
+        if (released || cancelled) {
+            return 0.0F;
+        }
+        return OrbitMath.smoothstep(0.0F, PHASE_FORM_START * 0.8F, progress(gameTime, partialTick));
+    }
+
+    /**
+     * Held-sphere radius: grows through FORM then holds at exactly {@code fullRadius}.
+     *
+     * <p>Reaching precisely {@code fullRadius} by release matters - the projectile is drawn at that
+     * same constant, so the handoff has no size pop.
      */
     public float radius(long gameTime, float partialTick, float fullRadius) {
-        float impactAge = impactAge(gameTime, partialTick);
-        if (impactAge >= 0.0F) {
-            // Implosion: collapse to a point over 2 ticks.
-            float collapse = Math.max(0.0F, 1.0F - impactAge / 2.0F);
-            return fullRadius * collapse * collapse;
-        }
         float progress = progress(gameTime, partialTick);
         float grow = OrbitMath.smoothstep(PHASE_FORM_START * 0.5F, PHASE_HOLD_START, progress);
         // A small overshoot just before hold makes the formation feel like it snaps into place.
+        // It resolves back to exactly 1.0 well before release.
         float overshoot = 1.0F + 0.10F * OrbitMath.smoothstep(PHASE_HOLD_START - 0.12F, PHASE_HOLD_START, progress)
                 * (1.0F - OrbitMath.smoothstep(PHASE_HOLD_START, PHASE_HOLD_START + 0.10F, progress));
         return fullRadius * grow * overshoot;
     }
-
-    /** Scratch vector reused by the renderer to avoid per-frame allocation. */
-    public final Vector3f scratch = new Vector3f();
 }

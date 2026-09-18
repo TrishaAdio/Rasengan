@@ -120,11 +120,13 @@ public final class RasenganClient {
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientCastTracker.clear();
         ClientPowerState.reset();
+        RasenganRenderer.clearCaches();
     }
 
     private static void onLevelUnload(LevelEvent.Unload event) {
         if (event.getLevel().isClientSide()) {
             ClientCastTracker.clear();
+            RasenganRenderer.clearCaches();
         }
     }
 }

@@ -1,5 +1,7 @@
 package dev.rasengan.client;
 
+import dev.rasengan.PalmAnchor;
+import dev.rasengan.Palette;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.rasengan.RasenganConfig;
@@ -100,6 +102,10 @@ public final class RasenganRenderer {
         // cast record has expired, so this must run even when there are no active casts.
         renderProjectiles(level, poseStack, collector, cameraPos, partialTick, maxDistance);
 
+        // Impacts are world-space events with no owner, so they too must run independently of
+        // whether any cast record is still alive.
+        renderImpacts(poseStack, collector, cameraPos, gameTime, partialTick, maxDistance);
+
         if (ClientCastTracker.isEmpty()) {
             return;
         }
@@ -110,32 +116,33 @@ public final class RasenganRenderer {
                 continue;
             }
 
-            Vec3 spherePos = HandAnchor.spherePosition(player, cast, gameTime, partialTick);
+            // The held sphere lives at the palm and nowhere else. There is no post-release glide
+            // any more - that glide is exactly what used to leave a second sphere hanging in the
+            // air while the real projectile flew off.
+            Vec3 spherePos = PalmAnchor.palmPosition(player, cast.mainHand, partialTick);
 
             float distanceFactor = ClientTuning.distanceFactor(cameraPos, spherePos, maxDistance);
             if (distanceFactor <= 0.0F) {
                 continue; // beyond the server's max effect distance
             }
 
-            float intensity = cast.intensity(gameTime, partialTick);
+            // sphereIntensity() returns 0 once released, so the held sphere cannot coexist with
+            // the projectile for even a single frame.
+            float intensity = cast.sphereIntensity(gameTime, partialTick);
             float radius = cast.radius(gameTime, partialTick, FULL_RADIUS);
-            float impactAge = cast.impactAge(gameTime, partialTick);
             float quality = ClientTuning.meshQuality(cameraPos, spherePos);
             float time = cast.age(gameTime, partialTick);
 
             boolean drawSphere = intensity > 0.01F && radius > 0.005F;
-            boolean drawImpact = impactAge >= 0.0F && impactAge <= ClientCast.IMPACT_TICKS;
 
             // ---- Stage 4: caster body aura, as geometry ----
             // Submitted from the same loop, off the same ClientCast, in the same frame as the
             // hand sphere. They share one trigger - the server's CastStart - so they cannot
-            // start at different times or appear independently of one another. Previously the
-            // aura existed only as particles on a separate code path, which is why it could go
-            // missing while the sphere still drew.
-            float auraIntensity = cast.auraIntensity * intensity * distanceFactor;
-            if (auraIntensity > 0.01F && impactAge < 0.0F && !cast.isCancelled()) {
-                Vec3 feet = HandAnchor.interpolatedPosition(player, partialTick);
-                Vec3 palm = HandAnchor.palmPosition(player, cast, partialTick);
+            // start at different times or appear independently of one another.
+            float auraIntensity = cast.auraIntensity * cast.auraFade(gameTime, partialTick) * distanceFactor;
+            if (auraIntensity > 0.01F) {
+                Vec3 feet = PalmAnchor.interpolatedPosition(player, partialTick);
+                Vec3 palm = spherePos;
 
                 poseStack.pushPose();
                 poseStack.translate(
@@ -165,7 +172,7 @@ public final class RasenganRenderer {
                 poseStack.popPose();
             }
 
-            if (!drawSphere && !drawImpact) {
+            if (!drawSphere) {
                 continue;
             }
 
@@ -186,21 +193,12 @@ public final class RasenganRenderer {
             final float fRadius = radius;
             final float fTime = time;
             final float fQuality = quality;
-            final float fImpactAge = impactAge;
-            final boolean fDrawSphere = drawSphere;
-            final boolean fDrawImpact = drawImpact;
 
             collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) -> {
-                if (fDrawSphere) {
-                    emitShells(pose, buffer, fRadius, fTime, fIntensity, fQuality, cast.seed);
-                    emitOrbitalRings(pose, buffer, cast.layers, fRadius, fTime, fIntensity, fQuality);
-                    emitHelices(pose, buffer, fRadius, fTime, fIntensity, fQuality, cast.seed);
-                    emitStreaks(pose, buffer, fRadius, fTime, fIntensity, cast.seed);
-                }
-                if (fDrawImpact) {
-                    emitImpact(pose, buffer, fImpactAge, fIntensity <= 0.0F ? 1.0F : 1.0F,
-                            distanceFactor, cast.seed);
-                }
+                emitShells(pose, buffer, fRadius, fTime, fIntensity, fQuality, cast.seed);
+                emitOrbitalRings(pose, buffer, cast.layers, fRadius, fTime, fIntensity, fQuality);
+                emitHelices(pose, buffer, fRadius, fTime, fIntensity, fQuality, cast.seed);
+                emitStreaks(pose, buffer, fRadius, fTime, fIntensity, cast.seed);
             });
 
             poseStack.popPose();
@@ -565,6 +563,32 @@ public final class RasenganRenderer {
         return f < 0.0F ? f + 1.0F : f;
     }
 
+    /**
+     * Orbital layers for a seed, cached.
+     *
+     * <p>A projectile draws the same layer set every frame, and layer generation allocates. The map
+     * is tiny and bounded by the number of distinct in-flight seeds, and it is cleared on world
+     * change along with everything else.
+     */
+    private static final java.util.Map<Long, Layer[]> LAYER_CACHE = new java.util.HashMap<>();
+
+    private static Layer[] layersFor(long seed) {
+        Layer[] cached = LAYER_CACHE.get(seed);
+        if (cached == null) {
+            if (LAYER_CACHE.size() > 64) {
+                LAYER_CACHE.clear(); // bounded; regenerating is cheap and rare
+            }
+            cached = OrbitMath.buildLayers(seed, 7);
+            LAYER_CACHE.put(seed, cached);
+        }
+        return cached;
+    }
+
+    /** Drops cached layer sets. Called on world unload / disconnect. */
+    public static void clearCaches() {
+        LAYER_CACHE.clear();
+    }
+
     // ------------------------------------------------------------------
     // Thrown projectile
     // ------------------------------------------------------------------
@@ -600,13 +624,18 @@ public final class RasenganRenderer {
             }
 
             float quality = ClientTuning.meshQuality(cameraPos, pos);
-            float time = projectile.lifeTicks() + partialTick;
             long seed = projectile.visualSeed();
 
-            // Spin up quickly over the first few ticks so the throw does not pop into existence.
-            float spawnIn = OrbitMath.smoothstep(0.0F, 3.0F, time);
-            float intensity = distanceFactor * spawnIn;
-            float radius = FULL_RADIUS * (0.92F + 0.08F * (float) Math.sin(time * 0.4F)) * spawnIn;
+            // Continue the held sphere's animation clock rather than restarting at zero, so the
+            // rings and helices do not jump to a different rotation phase at the moment of release.
+            // The held sphere's clock reads castDuration ticks at release, so the projectile picks
+            // up from exactly there. No extra syncing needed: lifeTicks advances on both sides.
+            float time = RasenganConfig.castDurationTicks() + projectile.lifeTicks() + partialTick;
+
+            // Full size from frame one. Any spawn-in ramp here would read as a pop, because the
+            // held sphere hands over at exactly FULL_RADIUS.
+            float intensity = distanceFactor;
+            float radius = FULL_RADIUS;
 
             Vec3 velocity = projectile.getDeltaMovement();
 
@@ -622,7 +651,9 @@ public final class RasenganRenderer {
             final float fTime = time;
             final float fIntensity = intensity;
             final float fQuality = quality;
-            final Layer[] layers = OrbitMath.buildLayers(seed, 7);
+            // Cached per seed. Building these every frame allocated 7 records and 21 vectors per
+            // projectile per frame, which is pure garbage churn on the render thread.
+            final Layer[] layers = layersFor(seed);
             final float vx = (float) -velocity.x;
             final float vy = (float) -velocity.y;
             final float vz = (float) -velocity.z;
@@ -634,6 +665,50 @@ public final class RasenganRenderer {
                 emitStreaks(pose, buffer, fRadius, fTime, fIntensity, seed);
                 emitTrail(pose, buffer, vx, vy, vz, fRadius, fTime, fIntensity, seed);
             });
+
+            poseStack.popPose();
+        }
+    }
+
+    /**
+     * Draws every impact blast currently playing, at its own world position.
+     *
+     * <p>Independent of casts and projectiles by design - the blast belongs to the point in space
+     * where contact happened, not to the caster.
+     */
+    private static void renderImpacts(PoseStack poseStack, SubmitNodeCollector collector,
+                                      Vec3 cameraPos, long gameTime, float partialTick,
+                                      double maxDistance) {
+        if (ClientImpactTracker.isEmpty()) {
+            return;
+        }
+
+        for (ClientImpactTracker.Impact impact : ClientImpactTracker.active()) {
+            float age = impact.age(gameTime, partialTick);
+            if (age < 0.0F || age > ClientImpactTracker.IMPACT_TICKS) {
+                continue;
+            }
+
+            float distanceFactor = ClientTuning.distanceFactor(cameraPos, impact.pos(), maxDistance);
+            if (distanceFactor <= 0.0F) {
+                continue;
+            }
+
+            Vec3 pos = impact.pos();
+            poseStack.pushPose();
+            poseStack.translate(pos.x - cameraPos.x, pos.y - cameraPos.y, pos.z - cameraPos.z);
+
+            CAMERA_LOCAL.set(
+                    (float) (cameraPos.x - pos.x),
+                    (float) (cameraPos.y - pos.y),
+                    (float) (cameraPos.z - pos.z));
+
+            final float fAge = age;
+            final float fDistance = distanceFactor;
+            final long seed = impact.seed();
+
+            collector.submitCustomGeometry(poseStack, RenderTypes.dragonRays(), (pose, buffer) ->
+                    emitImpact(pose, buffer, fAge, 1.0F, fDistance, seed));
 
             poseStack.popPose();
         }
@@ -722,7 +797,7 @@ public final class RasenganRenderer {
      */
     private static void emitImpact(PoseStack.Pose pose, VertexConsumer buffer, float impactAge,
                                    float intensity, float distanceFactor, long seed) {
-        float t = Math.clamp(impactAge / ClientCast.IMPACT_TICKS, 0.0F, 1.0F);
+        float t = Math.clamp(impactAge / ClientImpactTracker.IMPACT_TICKS, 0.0F, 1.0F);
         float fade = 1.0F - t;
 
         // ---- Spherical shockwave shell ----

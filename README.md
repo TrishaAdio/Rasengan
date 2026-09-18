@@ -57,7 +57,7 @@ These are the things that changed most recently and that the code depends on:
 
 1. Install **Java 25**.
 2. Install the **NeoForge 26.1.2.109** client profile from <https://neoforged.net>.
-3. Drop `rasengan-1.1.0.jar` into `.minecraft/mods/`.
+3. Drop `rasengan-1.2.0.jar` into `.minecraft/mods/`.
 4. Launch the NeoForge 26.1.2 profile.
 5. Optionally rebind the ability key: **Options → Controls → Gameplay → "Cast Rasengan"**
    (default **`R`**).
@@ -66,7 +66,7 @@ These are the things that changed most recently and that the code depends on:
 
 1. Install **Java 25** on the host.
 2. Install the NeoForge **26.1.2.109** server.
-3. Drop `rasengan-1.1.0.jar` into `mods/`.
+3. Drop `rasengan-1.2.0.jar` into `mods/`.
 4. Start the server once. It writes `config/rasengan-server.toml`.
 5. Edit that file, then restart (or use `/reload` for the values read per-cast).
 
@@ -87,12 +87,46 @@ logical side, not on physical side, so a LAN host and a dedicated server behave 
 
 ## 3. Gameplay
 
-**Release behaviour: thrown projectile.**
+**Release behaviour: thrown projectile — one single continuous object.**
 
-The sphere forms and is held in the caster's hand for the duration of the cast. On release it is
-launched forward as a dedicated `rasengan:rasengan_projectile` entity along the caster's aim vector.
-It keeps the full layered energy-sphere visual while in flight, with a braided twisting trail behind
-it, and it is a real server-tracked entity so every nearby player sees it travel.
+The sphere forms in the caster's hand, and on release **that same sphere becomes the projectile**.
+There is never more than one Rasengan in existence per cast.
+
+The handoff is a transfer of ownership, not a spawn:
+
+| | Before release | After release |
+|---|---|---|
+| Who draws the sphere | the cast record, at the palm | the projectile entity |
+| `ClientCast.sphereIntensity()` | ramps to 1 | returns a hard **`0.0`** |
+
+So the held sphere and the projectile cannot coexist for even one frame — the held source switches
+off in the same tick the entity takes over. Continuity is exact:
+
+- **Position** — the server launches from `PalmAnchor.palmPosition(...)`, the identical shared
+  function the client draws the held sphere with, so there is no jump.
+- **Size** — the held sphere resolves to exactly `FULL_RADIUS` before release and the projectile is
+  drawn at that same constant. No spawn-in ramp, so no pop.
+- **Animation phase** — the projectile's clock starts at `castDuration + lifeTicks`, continuing the
+  held sphere's count instead of restarting at zero, so the rings and helices don't jump phase.
+- **Layers and colours** — same seed, same generated layer set, same locked palette.
+
+> **Fixed in 1.2.0.** Previously the release left a *second* sphere behind: a melee-era code path
+> glided the held sphere forward toward the impact point after release and kept the cast record alive
+> for ~88 ticks, so it hung in the air while the real projectile flew off separately. That glide is
+> gone, the post-release window is now 6 ticks (aura fade only), and impacts were moved out of the
+> cast record into `ClientImpactTracker` so a blast renders at the projectile's actual contact point
+> rather than being anchored to the caster's hand.
+
+### Flight is dead straight
+
+Constant velocity along the launch vector until it hits something or reaches max range.
+
+- `setNoGravity(true)` on the entity, **and** the tick logic never touches velocity
+- No gravity, no drag, no air resistance, no velocity decay, no wobble, no homing
+- There are deliberately **no `gravity` or `drag` config options** — the arc was removed entirely
+  rather than defaulted to zero, so nothing can reintroduce it
+- Default speed `0.85` blocks/tick (~17 blocks/second): reads as a launched attack, slow enough to
+  watch the sphere spin
 
 1. Wait for the POWER BAR to reach 100% (150 seconds by default), or use `/chargeit` in Creative.
 2. Aim and press **`R`**.
@@ -143,11 +177,18 @@ game mode the command does nothing and reports `"/chargeit is Creative mode only
 The Creative requirement follows the player *being charged*, not the operator running the command,
 so it cannot be used to hand a survival player a free cast.
 
-On a successful cast — and only then — every online player receives:
+On a successful cast — and only then — every online player receives **`<player name> casted Rasengan`**,
+sent once, server-side, to everyone online including the caster.
 
-```
-<player name> casted Rasengan
-```
+The message is **bold** and coloured from the same locked palette as the sphere: the player name in
+pale white-blue `#BFE9FF`, the connecting text in near-white `#E8F6FF`, and *Rasengan* in the palette
+cyan `#4FD6FF`. That keeps name and ability visually distinct and both legible on light and dark chat
+backgrounds.
+
+It is built from three styled `Component`s using `Style.withColor(int)` for exact RGB — **not** legacy
+`§` codes in a raw string. Section codes are a rendering-layer hack: they can't be translated,
+inspected or restyled by other mods, and some chat plugins strip or escape them. Real components
+carry their style as data all the way to the client.
 
 Charging produces no message. A failed or rejected activation produces no message.
 
@@ -410,11 +451,10 @@ the server enforces.
 	announce_cast = true                 # the global chat announcement
 
 [projectile]
-	speed = 1.2                          # blocks per tick (~24 blocks/second)
-	gravity = 0.03                       # downward accel per tick; 0.0 = flat flight
-	drag = 0.99                          # velocity retained per tick; 1.0 = no drag
+	speed = 0.85                         # blocks per tick (~17 blocks/second)
 	lifetime_ticks = 100                 # max airborne time before it fizzles
 	max_range = 64.0                     # max distance travelled before it fizzles
+	# No gravity or drag options exist. Flight is always perfectly straight, by design.
 
 [environment]
 	block_damage_enabled = false         # OFF by default
@@ -520,7 +560,7 @@ cd rasengan
 ./gradlew build
 ```
 
-Output: `build/libs/rasengan-1.1.0.jar`.
+Output: `build/libs/rasengan-1.2.0.jar`.
 
 Requires **JDK 25** on `PATH` (or discoverable by Gradle's toolchain detection). The wrapper
 fetches Gradle 9.7.1 automatically. The first build downloads and decompiles Minecraft, which
@@ -554,13 +594,16 @@ python3 tools/generate_particle_textures.py
 
 | Check | Result |
 |---|---|
-| `./gradlew build` | Passes; produces `rasengan-1.1.0.jar`. |
+| `./gradlew build` | Passes; produces `rasengan-1.2.0.jar`. |
 | Dedicated server boot | `Done (0.206s)!` on `minecraft server version 26.1.2`, mod loaded as `Rasengan 1.0.0 (rasengan)`. No `NoClassDefFoundError` / `ClassNotFoundException`. |
 | Client-class isolation | `javap` over every compiled class: of 20 non-client classes, **zero** reference `net/minecraft/client/*`, and exactly **one** references `dev/rasengan/client/` — `Rasengan` → `RasenganClient`, inside the `Dist.CLIENT` branch. |
 | Config generation | `config/rasengan-server.toml` written with every documented option and the correct defaults, including `block_damage_enabled = false`. |
 | Damage correctness | Iron Golem (100 HP) given **Resistance IV** (80% reduction), then `damage @e[type=iron_golem,limit=1] 40 rasengan:rasengan` → health **exactly 60.0**. A non-bypassing source under Resistance IV would have dealt 8. Confirms the damage type registered, the bypass tags work, and 40 points land as one hit. |
-| **Projectile hit (end to end)** | Golem at `8 100 12`, projectile summoned at `8 100 2` with `Motion:[0,0,1.2]`. It flew the 10 blocks, struck the golem, and health went 100.0 → **exactly 60.0**. Confirms entity registration, the continuous-sweep collision, and the single 40-point hit in flight. |
-| **Projectile cleanup** | `execute unless entity @e[type=rasengan:rasengan_projectile]` printed `DESPAWNED_OK` after impact — the entity removes itself in the same tick. No exceptions in the log. |
+| **Straight flight, zero drop** | Golem at `8 100 40`, projectile launched from `8 100 2` — 38 blocks downrange at **identical Y**. It hit, health 100.0 → **exactly 60.0**. This is the decisive test: with the old `gravity = 0.03` the sphere would have fallen ~30 blocks over that flight and missed entirely. |
+| **Projectile cleanup on impact** | `IMPACT_DESPAWNED_OK` — the entity removes itself in the same tick as the blast. |
+| **Despawn at max range** | Fired into open air: `ALIVE_AT_2S`, then `RANGE_DESPAWNED_OK`, and no `STILL_ALIVE_AFTER_8S`. Fizzles and cleans up with no damage. |
+| **Single-sphere invariant (static)** | `emitShells` has exactly two call sites — the held sphere, gated on `sphereIntensity()`, and the projectile. `sphereIntensity()` returns a hard `0.0` when `released \|\| cancelled`, so the two cannot overlap for a frame. All release-glide code (`spherePosition`, `releaseOrigin`, `RELEASE_TRAVEL_TICKS`) is deleted. |
+| **No legacy colour codes** | Repo-wide grep for `§` finds only the javadoc explaining why they aren't used. |
 | **`/chargeit` registration** | `help chargeit` → `/chargeit [<target>]`, confirming both forms. `/chargeit` from console → *"A player is required to run this command here"*. `/chargeit NoSuchPlayer123` → *"No player was found"*. |
 | Config generation | `[projectile]` section written with correct defaults (`speed = 1.2`, `lifetime_ticks = 100`, `max_range = 64.0`). |
 
@@ -612,10 +655,16 @@ Not yet exercised — these need a graphical client, which the build environment
 - [ ] Aura is absent while walking/idle/charging, present only during the cast, gone cleanly after.
 - [ ] Aura still appears with the Particles video setting on **Minimal** (it is geometry now).
 - [ ] Sphere stays glued to the hand while running, turning and jumping.
+- [ ] **Exactly one sphere on screen** at every moment — charge, hold, throw, flight. No duplicate,
+      no lingering hand sphere fading out behind the throw.
+- [ ] The thrown sphere looks **identical** to the held one: same size, layers and colours, with no
+      pop, jump or gap at the moment of release.
 - [ ] **Projectile** launches on release, keeps the full sphere visual plus twisting trail in flight,
       and is visible to nearby players.
+- [ ] Flight is **visibly dead straight** with no droop, even at max range across open ground.
 - [ ] Projectile hitting a mob removes 20 hearts in one step and detonates at the contact point.
 - [ ] Projectile hitting a wall detonates there and deals no entity damage.
+- [ ] Chat announcement appears **bold and cyan-coloured** for every player, not plain white.
 - [ ] Impact animation plays fully even when the hit is lethal.
 - [ ] Two clients side by side see the same sphere, the same projectile path, and the same impact.
 - [ ] Casting, then disconnecting mid-cast, leaves no stuck effect for other players.

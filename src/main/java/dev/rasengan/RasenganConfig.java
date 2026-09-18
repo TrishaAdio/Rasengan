@@ -45,8 +45,6 @@ public final class RasenganConfig {
 
         // ---- Thrown projectile ----
         public final ModConfigSpec.DoubleValue projectileSpeed;
-        public final ModConfigSpec.DoubleValue projectileGravity;
-        public final ModConfigSpec.DoubleValue projectileDrag;
         public final ModConfigSpec.IntValue projectileLifetimeTicks;
         public final ModConfigSpec.DoubleValue projectileMaxRange;
 
@@ -120,17 +118,13 @@ public final class RasenganConfig {
 
             projectileSpeed = builder
                     .comment("Launch speed of the thrown sphere, in blocks per tick.",
-                            "1.2 is about 24 blocks/second - fast, but still visibly a projectile.",
-                            "Collision is a continuous sweep, so high values cannot tunnel through targets.")
-                    .defineInRange("speed", 1.2D, 0.1D, 10.0D);
-
-            projectileGravity = builder
-                    .comment("Downward acceleration per tick, in blocks. 0.0 makes the flight perfectly flat.")
-                    .defineInRange("gravity", 0.03D, 0.0D, 1.0D);
-
-            projectileDrag = builder
-                    .comment("Velocity retained each tick. 1.0 is no drag; lower values slow the sphere down.")
-                    .defineInRange("drag", 0.99D, 0.5D, 1.0D);
+                            "0.85 is about 17 blocks/second - fast enough to read as a launched attack,",
+                            "slow enough to watch the sphere spin in flight.",
+                            "Collision is a continuous sweep, so high values cannot tunnel through targets.",
+                            "",
+                            "Note: the sphere always flies in a perfectly straight line. There are no",
+                            "gravity or drag options, by design - nothing may bend its path.")
+                    .defineInRange("speed", 0.85D, 0.1D, 10.0D);
 
             projectileLifetimeTicks = builder
                     .comment("Maximum ticks the sphere may stay airborne before it fizzles out (20 ticks = 1 second).")
@@ -223,14 +217,6 @@ public final class RasenganConfig {
 
     public static double projectileSpeed() {
         return SERVER.projectileSpeed.get();
-    }
-
-    public static double projectileGravity() {
-        return SERVER.projectileGravity.get();
-    }
-
-    public static double projectileDrag() {
-        return SERVER.projectileDrag.get();
     }
 
     public static int projectileLifetimeTicks() {

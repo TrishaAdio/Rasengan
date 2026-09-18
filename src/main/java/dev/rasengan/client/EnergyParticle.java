@@ -1,5 +1,6 @@
 package dev.rasengan.client;
 
+import dev.rasengan.Palette;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleProvider;

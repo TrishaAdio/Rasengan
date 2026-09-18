@@ -1,5 +1,6 @@
 package dev.rasengan.client;
 
+import dev.rasengan.PalmAnchor;
 import dev.rasengan.RasenganParticles;
 import dev.rasengan.network.RasenganPayloads;
 import net.minecraft.client.Minecraft;
@@ -37,8 +38,10 @@ public final class ClientEffects {
         Minecraft minecraft = Minecraft.getInstance();
         Vec3 cameraPos = minecraft.gameRenderer.getMainCamera().position();
 
-        Vec3 palm = HandAnchor.palmPosition(player, cast, 1.0F);
-        Vec3 sphere = HandAnchor.spherePosition(player, cast, gameTime, 1.0F);
+        // While held, the sphere IS the palm. There is no separate "sphere position" any more -
+        // once released, the projectile entity owns the visual and this method stops emitting.
+        Vec3 palm = PalmAnchor.palmPosition(player, cast.mainHand, 1.0F);
+        Vec3 sphere = palm;
 
         float distanceFactor = ClientTuning.distanceFactor(cameraPos, sphere,
                 dev.rasengan.RasenganConfig.maxEffectDistance());
@@ -52,10 +55,11 @@ public final class ClientEffects {
         RandomSource random = RandomSource.create(cast.seed * 31L + gameTime);
 
         float progress = cast.progress(gameTime, 1.0F);
-        boolean released = cast.isReleased() || cast.hasImpact();
 
-        if (cast.isCancelled() || released) {
-            return; // aura and sphere emissions stop cleanly the moment the cast ends
+        if (cast.isCancelled() || cast.isReleased()) {
+            // Emission stops dead at release. The projectile is now the only Rasengan in
+            // existence, and it emits its own particles from its own position.
+            return;
         }
 
         // ---- Stage 4: caster body aura ----
@@ -123,7 +127,7 @@ public final class ClientEffects {
         if (intensity <= 0.0F) {
             return;
         }
-        Vec3 feet = HandAnchor.interpolatedPosition(player, 1.0F);
+        Vec3 feet = PalmAnchor.interpolatedPosition(player, 1.0F);
         double height = player.getBbHeight();
         double width = player.getBbWidth() * 0.5D;
 

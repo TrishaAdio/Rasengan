@@ -2,6 +2,8 @@ package dev.rasengan.server;
 
 import dev.rasengan.PowerState;
 import dev.rasengan.Rasengan;
+import dev.rasengan.PalmAnchor;
+import dev.rasengan.Palette;
 import dev.rasengan.RasenganConfig;
 import dev.rasengan.network.RasenganPayloads;
 import java.util.ArrayList;
@@ -136,11 +138,33 @@ public final class ServerCastManager {
         // including the caster.
         if (RasenganConfig.announceCast()) {
             MinecraftServer server = ((ServerLevel) player.level()).getServer();
-            server.getPlayerList().broadcastSystemMessage(
-                    Component.literal(player.getGameProfile().name() + " casted Rasengan"),
-                    false);
+            server.getPlayerList().broadcastSystemMessage(castAnnouncement(player), false);
         }
         return true;
+    }
+
+    /**
+     * Builds the styled global announcement: {@code <player name> casted Rasengan}.
+     *
+     * <p>Assembled from three styled {@link Component}s rather than a string with legacy
+     * {@code §} codes. Section codes are a rendering-layer hack: they cannot be translated,
+     * inspected or restyled by downstream mods, and some chat plugins strip or escape them. Real
+     * components carry their style as data all the way to the client.
+     *
+     * <p>Colours come from the same locked {@link Palette} the sphere uses, via
+     * {@code Style.withColor(int)} for exact RGB rather than the 16 legacy chat colours. The player
+     * name is the pale white-blue highlight and the ability name is the palette cyan, which keeps
+     * the two visually distinct and both legible against light and dark chat backgrounds. The whole
+     * message is bold.
+     */
+    public static Component castAnnouncement(ServerPlayer player) {
+        return Component.empty()
+                .append(Component.literal(player.getGameProfile().name())
+                        .withStyle(style -> style.withColor(Palette.HIGHLIGHT).withBold(true)))
+                .append(Component.literal(" casted ")
+                        .withStyle(style -> style.withColor(Palette.CORE).withBold(true)))
+                .append(Component.literal("Rasengan")
+                        .withStyle(style -> style.withColor(Palette.CYAN).withBold(true)));
     }
 
     // ------------------------------------------------------------------
@@ -204,11 +228,11 @@ public final class ServerCastManager {
             direction = cast.direction;
         }
 
-        // Launch from just in front of the eyes along the aim vector, so the sphere leaves the
-        // hand rather than spawning inside the player's own hitbox.
-        Vec3 origin = player.getEyePosition()
-                .add(direction.scale(0.45D))
-                .subtract(0.0D, 0.15D, 0.0D);
+        // Launch from the exact palm position the client has been drawing the held sphere at.
+        // PalmAnchor is shared common code precisely so both sides agree here - launching from
+        // somewhere else, such as "eyes plus a bit forward", makes the sphere visibly jump at the
+        // moment of release.
+        Vec3 origin = PalmAnchor.palmPosition(player, cast.mainHand, 1.0F);
 
         RasenganProjectile.launch(level, player, origin, direction, cast.seed);
     }

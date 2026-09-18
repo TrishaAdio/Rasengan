@@ -1,5 +1,6 @@
 package dev.rasengan.client;
 
+import dev.rasengan.Palette;
 import dev.rasengan.PowerState;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;

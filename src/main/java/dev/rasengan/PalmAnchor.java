@@ -1,27 +1,33 @@
-package dev.rasengan.client;
+package dev.rasengan;
 
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Computes where the caster's palm is, in world space, for a given frame.
+ * Computes where a caster's palm is in world space.
+ *
+ * <p>Deliberately common rather than client-only. The client renders the held sphere here, and the
+ * server launches the projectile from here, so both agree on the handoff point to the block. If the
+ * server launched from, say, "eyes plus a bit forward" while the client drew the sphere at the palm,
+ * the throw would visibly jump at the moment of release.
  *
  * <h2>Why this is not just "player position plus an offset"</h2>
- * The sphere has to stay glued to a moving, turning player without lagging or swimming. Three
- * things make that work:
  * <ul>
- *   <li>The player's position is interpolated between its previous and current tick using the
- *       frame's partial tick, matching exactly how the player model itself is drawn. Using the
- *       raw current position instead would make the sphere stutter relative to the body.</li>
- *   <li>The offset is built from the <em>body</em> yaw, not the head yaw, so the hand does not
- *       fly around the player when they flick the mouse. Pitch is applied separately and damped,
- *       which is what a real arm does.</li>
+ *   <li>Position is interpolated between the previous and current tick with the frame's partial
+ *       tick, matching how the player model itself is drawn. Using the raw current position would
+ *       make the sphere stutter relative to the body.</li>
+ *   <li>The offset is built from the <em>body</em> yaw, not the head yaw, so the hand does not fly
+ *       around the player when they flick the mouse. Pitch is applied separately and damped, which
+ *       is what a real arm does.</li>
  *   <li>Yaw is interpolated the short way around the circle, so crossing the 180-degree boundary
  *       does not send the sphere on a full lap around the player.</li>
  * </ul>
+ *
+ * <p>This class contains no rendering code and touches no client-only type, so a dedicated server
+ * loads it safely.
  */
-public final class HandAnchor {
+public final class PalmAnchor {
 
     /** Forward reach from the chest, in blocks. */
     private static final double FORWARD = 0.52D;
@@ -30,10 +36,15 @@ public final class HandAnchor {
     /** Height below eye level where the hand sits. */
     private static final double DROP = 0.42D;
 
-    private HandAnchor() {}
+    private PalmAnchor() {}
 
-    /** Interpolated world position of the casting palm. */
-    public static Vec3 palmPosition(Player player, ClientCast cast, float partialTick) {
+    /**
+     * Interpolated world position of the casting palm.
+     *
+     * @param mainHand    true if the ability is bound to the main hand
+     * @param partialTick 0..1 within the current tick; the server passes 1.0
+     */
+    public static Vec3 palmPosition(Player player, boolean mainHand, float partialTick) {
         Vec3 body = interpolatedPosition(player, partialTick);
 
         float bodyYaw = lerpAngle(player.yBodyRotO, player.yBodyRot, partialTick);
@@ -53,7 +64,7 @@ public final class HandAnchor {
         double rightZ = sin;
 
         boolean rightHanded = player.getMainArm() == HumanoidArm.RIGHT;
-        double side = (cast.mainHand == rightHanded) ? SIDE : -SIDE;
+        double side = (mainHand == rightHanded) ? SIDE : -SIDE;
 
         double reach = FORWARD * Math.cos(pitchRad);
         double lift = -FORWARD * Math.sin(pitchRad);
@@ -64,33 +75,6 @@ public final class HandAnchor {
                 body.x + forwardX * reach + rightX * side,
                 eyeY - DROP + lift,
                 body.z + forwardZ * reach + rightZ * side);
-    }
-
-    /**
-     * Where the sphere actually renders this frame: the palm while held, then a smooth glide to
-     * the impact point after release. The glide is eased so there is no visual teleport.
-     */
-    public static Vec3 spherePosition(Player player, ClientCast cast, long gameTime, float partialTick) {
-        Vec3 palm = palmPosition(player, cast, partialTick);
-
-        float progress = cast.progress(gameTime, partialTick);
-        if (progress < 1.0F && !cast.isReleased()) {
-            return palm;
-        }
-
-        // Remember where the strike started so the glide has a stable origin.
-        cast.setReleaseOrigin(palm);
-        Vec3 origin = cast.releaseOrigin() != null ? cast.releaseOrigin() : palm;
-
-        Vec3 target = cast.hasImpact()
-                ? cast.impactPos()
-                : origin.add(cast.direction.scale(2.0D));
-
-        float sinceRelease = cast.age(gameTime, partialTick) - cast.castDuration;
-        float t = Math.clamp(sinceRelease / ClientCast.RELEASE_TRAVEL_TICKS, 0.0F, 1.0F);
-        float eased = OrbitMath.easeOut(t);
-
-        return origin.add(target.subtract(origin).scale(eased));
     }
 
     /** Position interpolated the same way the entity renderer does it. */

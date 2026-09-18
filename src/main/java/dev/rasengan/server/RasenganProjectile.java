@@ -69,6 +69,10 @@ public class RasenganProjectile extends Entity {
         super(type, level);
         // This entity does its own collision; vanilla step/push physics must not interfere.
         this.noPhysics = true;
+        // Belt and braces on the straight-line guarantee: this stops vanilla applying gravity to
+        // the entity independently of the tick logic below, and it is synced to clients so the
+        // client-side copy does not sag between position updates either.
+        setNoGravity(true);
     }
 
     // ------------------------------------------------------------------
@@ -226,10 +230,10 @@ public class RasenganProjectile extends Entity {
         travelled += start.distanceTo(intendedEnd);
         setPos(intendedEnd.x, intendedEnd.y, intendedEnd.z);
 
-        // Mild drag plus optional drop-off, so the flight arcs slightly instead of being a
-        // perfectly flat line. Both are configurable; gravity defaults to a gentle value.
-        Vec3 next = getDeltaMovement().scale(RasenganConfig.projectileDrag());
-        setDeltaMovement(next.subtract(0.0D, RasenganConfig.projectileGravity(), 0.0D));
+        // Velocity is deliberately left untouched. The sphere flies dead straight along the aim
+        // vector it was launched with: no gravity, no drag, no decay, no wobble, no homing. It is
+        // compressed energy, not a thrown rock. Combined with setNoGravity(true) in the
+        // constructor, nothing in the game can bend its path.
     }
 
     /** Result of a successful entity sweep. */

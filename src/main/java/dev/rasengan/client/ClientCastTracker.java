@@ -80,25 +80,34 @@ public final class ClientCastTracker {
                 aura));
     }
 
+    /**
+     * An impact is a standalone world-space event. It is deliberately <em>not</em> attached to the
+     * cast record: the blast happens wherever the projectile made contact, which may be far from the
+     * caster and may happen after the cast record has already expired.
+     */
     public static void onCastImpact(RasenganPayloads.CastImpact payload) {
         ClientLevel level = Minecraft.getInstance().level;
         if (level == null) {
             return;
         }
-        ClientCast cast = ACTIVE.get(payload.casterId());
+        long gameTime = level.getGameTime();
         Vec3 pos = new Vec3(payload.x(), payload.y(), payload.z());
 
-        if (cast != null) {
-            cast.applyImpact(pos, payload.hitKind(), level.getGameTime());
-        }
-        // The burst is spawned even if the cast record was dropped (out of range on arrival,
-        // or over the effect cap), so an impact is never silently invisible.
+        ClientImpactTracker.add(payload, gameTime);
+
+        ClientCast cast = ACTIVE.get(payload.casterId());
         ClientEffects.spawnImpactBurst(level, pos, payload.hitKind(),
                 cast != null ? cast.seed : payload.casterId(),
                 cast != null ? cast.particleDensity : ClientTuning.particleScale());
         ClientEffects.playImpactSound(level, pos);
     }
 
+    /**
+     * Release hands the single sphere over to the projectile entity.
+     *
+     * <p>{@code markReleased} stops this record drawing a sphere immediately. The record survives
+     * only a few more ticks so the body aura can fade, then it is discarded.
+     */
     public static void onCastEnd(RasenganPayloads.CastEnd payload) {
         ClientLevel level = Minecraft.getInstance().level;
         ClientCast cast = ACTIVE.get(payload.casterId());
@@ -108,7 +117,7 @@ public final class ClientCastTracker {
         if (payload.reason() == RasenganPayloads.CastEnd.REASON_CANCELLED) {
             cast.applyCancel(level.getGameTime());
         } else {
-            cast.markReleased();
+            cast.markReleased(level.getGameTime());
         }
     }
 
@@ -116,12 +125,14 @@ public final class ClientCastTracker {
     // Tick
     // ------------------------------------------------------------------
 
-    /** Expires finished casts and emits the per-tick stochastic particles. */
+    /** Expires finished casts and impacts, and emits the per-tick stochastic particles. */
     public static void clientTick(ClientLevel level) {
+        long gameTime = level.getGameTime();
+        ClientImpactTracker.clientTick(gameTime);
+
         if (ACTIVE.isEmpty()) {
             return;
         }
-        long gameTime = level.getGameTime();
         List<Integer> toRemove = new ArrayList<>(0);
 
         for (Iterator<Map.Entry<Integer, ClientCast>> it = ACTIVE.entrySet().iterator(); it.hasNext(); ) {
@@ -136,10 +147,9 @@ public final class ClientCastTracker {
             Entity entity = level.getEntity(cast.casterId);
             if (!(entity instanceof Player player) || !player.isAlive() || player.isRemoved()) {
                 // Caster left the client's view or died: drop the effect rather than leaving it
-                // floating at a stale position.
-                if (!cast.hasImpact()) {
-                    it.remove();
-                }
+                // floating at a stale position. Any in-flight projectile is unaffected - it is an
+                // independent entity, and any impact already queued still plays.
+                it.remove();
                 continue;
             }
 
@@ -151,5 +161,6 @@ public final class ClientCastTracker {
     /** Full teardown on world change or disconnect. */
     public static void clear() {
         ACTIVE.clear();
+        ClientImpactTracker.clear();
     }
 }

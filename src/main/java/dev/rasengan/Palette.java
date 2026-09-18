@@ -1,4 +1,4 @@
-package dev.rasengan.client;
+package dev.rasengan;
 
 /**
  * The single locked energy palette. Every player's aura and sphere uses these colours.
