@@ -62,9 +62,30 @@ public final class RasenganSounds {
             REGISTRY.register("summon_buildup",
                     id -> SoundEvent.createVariableRangeEvent(id));
 
-    /** The arrival impact: a 1.6 second low thump with a descending sweep and debris tail. */
+    /** The arrival impact: a low thump with a descending sweep and debris tail. */
     public static final DeferredHolder<SoundEvent, SoundEvent> SUMMON_REVEAL =
             REGISTRY.register("summon_reveal",
+                    id -> SoundEvent.createVariableRangeEvent(id));
+
+    /**
+     * An OPTIONAL creature roar, layered under the silhouette reveal.
+     *
+     * <h2>This event usually has no sound file, and that is deliberate</h2>
+     * The audio it was built for could not be cleared for redistribution, so it is installed locally
+     * by {@code tools/install_summon_roar.sh} and is gitignored. See {@code AUDIO_CREDITS.md} for the
+     * metadata that led to that decision.
+     *
+     * <p>Nothing needs to guard the call. {@code SoundManager.validateSoundResource} logs
+     * <em>"File ... does not exist, cannot add it to event ..."</em> once at resource load and then
+     * simply does not add the sound to the event, so playing it is a silent no-op for anyone who has
+     * not installed a file. That one warning line in the client log is the entire cost of the feature
+     * being absent, and is the reason this needs no config flag and no existence check.
+     *
+     * <p>Registered with a variable range like the rest, and played positionally at the dragon so it
+     * attenuates with distance.
+     */
+    public static final DeferredHolder<SoundEvent, SoundEvent> SUMMON_ROAR =
+            REGISTRY.register("summon_roar",
                     id -> SoundEvent.createVariableRangeEvent(id));
 
     private RasenganSounds() {}

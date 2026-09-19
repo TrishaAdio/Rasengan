@@ -1,0 +1,142 @@
+
+=== A. Stage layout at the shipped defaults ===
+  total=70 ticks (3.50s)
+  A seal          0.000 ->  12.000   (0.600s)
+  B eruption     12.000 ->  32.000   (1.000s)
+  C reveal       32.000 ->  49.167   (0.858s)
+  D dispersal    49.167 ->  61.167   (0.600s)
+  E settle       61.167 ->  70.000   (0.442s)
+  ok:   A is 0.6s (0.600000)
+  ok:   B is 1.0s (1.000000)
+  ok:   D is 0.6s (0.600000)
+  ok:   E is at least 0.4s
+  ok:   reveal is reported as an int matching the config
+  C spec 0.800s, actual 0.858s; stage D start shifted +1.1667 ticks
+  reason: D is snapped to the wing downbeat at tick 49.1667
+  ok:   stage C is within half a flap cycle of its spec duration
+  ok:   the shift is under 2 ticks at the shipped defaults
+
+=== B. Stage boundaries stay ordered across the whole config range ===
+  11322 configurations exercised (total 20..400, reveal 5..total)
+  stage order violations: 0
+  wing-aligned dispersal: 10115 of 11322 (89.3%)
+  ok:   no configuration produces out-of-order stages
+  degenerate case total=20 reveal=15: dispersalStart=16.000 aligned=false
+
+=== C. Stage D lands on a real wing downbeat ===
+  wing cycle       = 39.1667 ticks (1.9583s, from animation_length)
+  downbeat peak    = 10.0000 ticks into the cycle
+  downbeat instants: 10.0000 49.1667 88.3334
+  dispersalStart   = 49.1667, nearest downbeat n=1, |delta| = 0.000e+00 ticks
+  ok:   dispersal coincides with a downbeat to under 1e-3 ticks
+  ok:   timeline reports the dispersal as wing-aligned
+  entranceWingPhase(dispersalStart) = 10.0000 (expected 10.0000)
+  ok:   wing phase at the impulse IS the downbeat phase (10.000000)
+
+=== D. Wing phase is continuous and periodic ===
+  sampled 8001 points over 0..400 ticks at 0.05 spacing
+  max non-wrap phase step = 0.0500 at t=64.10 (0.05 expected)
+  ok:   phase stayed inside [0, cycle) for all 8001 samples
+  ok:   phase advances at most one sample step
+  ok:   phase is periodic: p(t) == p(t + cycle) (7.300000)
+
+=== E. Camera release blend: eased, monotonic, reaches exactly 0 ===
+     t   releaseFactor
+   56.0   1.000000
+   58.0   1.000000
+   60.0   0.925926
+   62.0   0.740741
+   64.0   0.500000
+   66.0   0.259259
+   68.0   0.074074
+   70.0   0.000000
+  release window = ticks 58..70 (12 ticks = 0.60s)
+  f(58)=1.000000  f(70)=0.000000  f(80)=0.000000  max step per 0.5 tick=0.062355
+  ok:   blend is 1.0 when the release begins (1.000000)
+  ok:   blend reaches exactly 0 at the end (0.000000)
+  ok:   blend stays 0 afterwards (0.000000)
+  ok:   blend is monotonically decreasing
+  ok:   blend release is 0.4-0.8s as specified
+  d/dt at start=-0.000104  mid=-0.125003  end=-0.000104
+  ok:   velocity is ~0 at the start of the blend
+  ok:   velocity is ~0 at the end of the blend
+  ok:   velocity is non-zero in the middle
+  camera disabled (releaseTicks=0): factor at mid-sequence = 0.000000
+  ok:   a disabled camera contributes zero (0.000000)
+
+=== F. Camera distance taper: continuous across the radius boundary ===
+  distance  weight      (radius 64, full inside 48)
+     40.0   1.000000
+     45.0   1.000000
+     50.0   0.957031
+     55.0   0.593262
+     60.0   0.156250
+     65.0   0.000000
+     70.0   0.000000
+  w(10)=1.000000  w(64)=0.000000  w(80)=0.000000  max step per 0.25 blocks=0.023430
+  ok:   full strength well inside the radius (1.000000)
+  ok:   exactly zero at the radius (0.000000)
+  ok:   zero beyond the radius (0.000000)
+  ok:   no step larger than 0.05 across the boundary
+  (the previous binary 64-block gate stepped 1.00 in one frame here)
+
+=== G. Smoke opacity curve: starts at 0, ends at 0, no step at any frame ===
+     f    alpha
+   0.00   0.000000
+   0.10   0.920000
+   0.20   0.726914
+   0.30   0.556543
+   0.40   0.408888
+   0.50   0.283950
+   0.60   0.181729
+   0.70   0.102224
+   0.80   0.045434
+   0.90   0.011359
+   1.00   0.000000
+  alpha(0)=0.00000000  alpha(1)=0.00000000  peak=0.920000  max step per 0.002 life=0.027585
+  ok:   a puff spawns at exactly 0 opacity (no pop in) (0.000000)
+  ok:   a puff dies at exactly 0 opacity (no pop out) (0.000000)
+  ok:   peak opacity is high enough to obscure
+  opacity continuity: max step at h=0.004 is 0.055171, at h=0.001 is 0.013798 -> ratio 4.00 (4.0 expected for a continuous curve)
+  ok:   opacity is continuous (refinement ratio > 3.0, i.e. no jump)
+  largest per-TICK alpha change for a 55-tick billow = 0.246071
+  -> that is the step size a tick-quantised alpha would show per frame
+  ok:   the avoided per-tick step was material (>0.02)
+
+=== H. Smoke size curve: continuous and monotonic across partial ticks ===
+     f    size
+   0.00   2.600000 blocks
+   0.10   3.168100 blocks
+   0.20   3.676400 blocks
+   0.30   4.124901 blocks
+   0.40   4.513602 blocks
+   0.50   4.842502 blocks
+   0.60   5.111598 blocks
+   0.70   5.320897 blocks
+   0.80   5.470397 blocks
+   0.90   5.560097 blocks
+   1.00   5.590000 blocks
+  size(0)=2.6000  size(1)=5.5900  growth=2.15x  max step per 0.002=0.011948
+  ok:   puffs grow over their life (billowing)
+  ok:   size is monotonic (never shrinks mid-life)
+  size continuity: max step at h=0.004 is 0.023872, at h=0.001 is 0.005977 -> ratio 3.99 (4.0 expected for a continuous curve)
+  ok:   size is continuous (refinement ratio > 3.0, i.e. no jump)
+
+=== I. Obscuration: is the arrival point actually hidden at the reveal? ===
+  BILLOW friction=0.855 gravity=-0.0040 size=2.60 life=46..64
+  WISP   friction=0.895 size=1.50 life=26..42
+  spawned 289 column puffs over stage B; 289 still alive at the reveal
+  thinnest point: (-3.0, 2.0, 3.0) at 0.9725 opacity
+  343 sample points across the dragon's body volume (6.0 x 4.8 x 6.0)
+  accumulated opacity along the view ray: min 0.9725, mean 0.9997
+  points at >=0.95 opacity: 343 of 343 (100.0%)
+  ok:   every sample point is at least 95% obscured at the reveal
+  ok:   mean optical depth is effectively opaque
+
+  (the same measurement is not repeated at stage E: the cloud there is
+   built from a different, much smaller emission and the dispersal impulse
+   redistributes it - covered by the live-server harness instead.)
+
+================================================================
+37 assertions, 0 failures
+================================================================

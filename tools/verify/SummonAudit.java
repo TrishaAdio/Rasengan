@@ -6,6 +6,8 @@ import dev.rasengan.PowerState;
 import dev.rasengan.RasenganConfig;
 import dev.rasengan.network.RasenganSummonPayloads;
 import dev.rasengan.server.DragonEntity;
+import dev.rasengan.server.DragonFearManager;
+import dev.rasengan.server.FleeFromDragonGoal;
 import dev.rasengan.server.PowerData;
 import dev.rasengan.server.ServerSummonManager;
 import dev.rasengan.server.SummonLines;
@@ -192,19 +194,41 @@ public final class SummonAudit {
                 Unpooled.buffer(), server.registryAccess());
 
         RasenganSummonPayloads.SummonStart start = new RasenganSummonPayloads.SummonStart(
-                7, -1234567890123L, 12.5D, -48.0D, -7.25D, 100, 70,
-                RasenganSummonPayloads.SummonStart.packCamera(45, 95));
+                7, 99, -1234567890123L, 12.5D, -48.0D, -7.25D, 70, 32,
+                12, 64.0F, 1.0F, true);
         RasenganSummonPayloads.SummonStart.CODEC.encode(buf, start);
         int startBytes = buf.readableBytes();
         RasenganSummonPayloads.SummonStart back =
                 RasenganSummonPayloads.SummonStart.CODEC.decode(buf);
         check(start.equals(back), "SummonStart survives encode/decode (" + startBytes + " bytes)");
         check(buf.readableBytes() == 0, "SummonStart decode consumed exactly what encode wrote");
-        check(back.cameraStart() == 45 && back.cameraEnd() == 95,
-                "packed camera window unpacks to 45..95, got " + back.cameraStart() + ".." + back.cameraEnd());
-        check(back.cameraEnabled(), "camera window reports enabled when non-zero");
-        check(!new RasenganSummonPayloads.SummonStart(0, 0L, 0, 0, 0, 100, 70, 0).cameraEnabled(),
-                "camera window reports disabled when zero");
+        check(back.dragonId() == 99,
+                "SummonStart carries the pre-spawned dragon id through the wire");
+        check(back.cameraEnabled(), "a non-zero release length means the camera effect is on");
+        check(!new RasenganSummonPayloads.SummonStart(
+                        0, 0, 0L, 0, 0, 0, 70, 32, 0, 64.0F, 1.0F, false).cameraEnabled(),
+                "a zero release length means the camera effect is off");
+
+        buf.clear();
+        // SummonEnd: the packet that makes interruption safe. Two varints.
+        for (RasenganSummonPayloads.SummonEnd.Reason reason
+                : RasenganSummonPayloads.SummonEnd.Reason.values()) {
+            buf.clear();
+            RasenganSummonPayloads.SummonEnd end =
+                    RasenganSummonPayloads.SummonEnd.of(7, reason);
+            RasenganSummonPayloads.SummonEnd.CODEC.encode(buf, end);
+            int bytes = buf.readableBytes();
+            RasenganSummonPayloads.SummonEnd decoded =
+                    RasenganSummonPayloads.SummonEnd.CODEC.decode(buf);
+            check(end.equals(decoded) && decoded.reasonValue() == reason,
+                    "SummonEnd/" + reason + " survives encode/decode (" + bytes + " bytes)");
+            check(buf.readableBytes() == 0, "SummonEnd/" + reason + " decode consumed exactly what "
+                    + "encode wrote");
+        }
+        check(RasenganSummonPayloads.SummonEnd.Reason.byId(99)
+                        == RasenganSummonPayloads.SummonEnd.Reason.INTERRUPTED,
+                "an unknown SummonEnd reason falls back to INTERRUPTED, so a version mismatch "
+                        + "releases the camera rather than stranding it");
 
         buf.clear();
         RasenganSummonPayloads.SummonPowerSync sync =
@@ -347,6 +371,19 @@ public final class SummonAudit {
         int maxDragons;
         int lateGateChecks;
         boolean started;
+        boolean preSpawnSeen;
+
+        // ---- fear ----
+        int mobsPlaced;
+        int fearAtReveal;
+        final List<net.minecraft.world.entity.Mob> fearTargets = new ArrayList<>();
+        final List<Vec3> fearStartPos = new ArrayList<>();
+        net.minecraft.world.entity.Mob farMob;
+        net.minecraft.world.entity.Mob immuneMob; // unused: immunity is asserted via the tag
+        int fearExpiredTick = -1;
+        double maxFleeDistance;
+        DragonEntity interruptedDragon;
+
         Vec3 firstDragonPos;
         Vec3 lastDragonPos;
         double pathLength;
@@ -394,11 +431,19 @@ public final class SummonAudit {
         switch (s.t) {
             case 0 -> {
                 log("---- scenario start ----");
+                var stages = RasenganConfig.summonStages();
                 log("config: charge=" + RasenganConfig.summonChargeDurationTicks() + "t total="
-                        + total + "t reveal=" + configuredReveal + "t camera="
-                        + RasenganConfig.SERVER.summonCameraStartTick.get() + ".."
-                        + RasenganConfig.SERVER.summonCameraEndTick.get()
-                        + " camera_enabled=" + RasenganConfig.SERVER.summonCameraEffect.get());
+                        + total + "t reveal=" + configuredReveal
+                        + "t camera_enabled=" + RasenganConfig.SERVER.summonCameraEffect.get()
+                        + " release=" + RasenganConfig.SERVER.summonCameraReleaseTicks.get() + "t");
+                log(String.format("stages: A 0-%.2f  B -%.2f  C -%.2f  D -%.2f  E -%d"
+                                + "  (dispersal wing-aligned=%b)",
+                        stages.sealEnd(), stages.eruptionEnd(), stages.revealEnd(),
+                        stages.dispersalEnd(), stages.total(), stages.dispersalWingAligned()));
+                log("fear: enabled=" + RasenganConfig.SERVER.fearEnabled.get()
+                        + " radius=" + RasenganConfig.SERVER.fearRadius.get()
+                        + " duration=" + RasenganConfig.SERVER.fearDurationTicks.get() + "t"
+                        + " suppress=" + RasenganConfig.SERVER.fearSuppressAttacks.get());
                 ServerSummonManager.clearAll();
                 killDragons(s.level);
                 s.summoner = new Recorder(s.server, s.level, "AuditSummoner");
@@ -435,6 +480,68 @@ public final class SummonAudit {
                     log("refusal text: " + s.summoner.chat.get(0).getString());
                 }
                 check(ServerSummonManager.pendingCount() == 0, "no cinematic started on refusal");
+            }
+            case 6 -> {
+                // ---- place hostiles for the fear test, BEFORE the summon ----
+                //
+                // The seal lands ARRIVAL_DISTANCE blocks along the summoner's look vector, which is
+                // +Z here (yaw 0), so the dragon arrives near (0.5, y, 9.5). Mobs are placed close to
+                // that, one deliberately outside the radius, and one carrying the fear-immune tag.
+                DragonFearManager.clearAll();
+                double radius = RasenganConfig.SERVER.fearRadius.get();
+                double[][] spots = {{4.5D, 11.5D}, {-3.5D, 12.5D}, {0.5D, 16.5D}};
+                for (double[] spot : spots) {
+                    var zombie = net.minecraft.world.entity.EntityType.ZOMBIE
+                            .create(s.level, net.minecraft.world.entity.EntitySpawnReason.COMMAND);
+                    if (zombie == null) {
+                        continue;
+                    }
+                    zombie.snapTo(spot[0], -59.0D, spot[1], 0.0F, 0.0F);
+                    zombie.setPersistenceRequired();
+                    if (s.level.addFreshEntity(zombie)) {
+                        s.fearTargets.add(zombie);
+                        s.mobsPlaced++;
+                    }
+                }
+                // Far outside the radius.
+                var far = net.minecraft.world.entity.EntityType.ZOMBIE
+                        .create(s.level, net.minecraft.world.entity.EntitySpawnReason.COMMAND);
+                if (far != null) {
+                    far.snapTo(0.5D, -59.0D, 9.5D + radius + 20.0D, 0.0F, 0.0F);
+                    far.setPersistenceRequired();
+                    if (s.level.addFreshEntity(far)) {
+                        s.farMob = far;
+                    }
+                }
+                log("placed " + s.mobsPlaced + " hostiles inside the fear radius, 1 outside it");
+                check(s.mobsPlaced == 3, "three test hostiles were placed (" + s.mobsPlaced + ")");
+                check(DragonFearManager.frightenedCount() == 0,
+                        "nothing is frightened before the summon");
+
+                // ---- boss immunity, checked as a tag rather than with a live boss ----
+                //
+                // Deliberately not by spawning a Warden or a Wither inside the radius: both would
+                // attack the zombies this scenario is measuring, and a Warden also digs down and
+                // despawns. Either would corrupt the flee measurement and the failure would look like
+                // a fear bug. The mechanism worth testing is that the tag file actually loaded and
+                // contains the right entries - a wrong resource path is the realistic failure here,
+                // and it would silently make every boss frightenable.
+                var immuneTag = DragonFearManager.FEAR_IMMUNE;
+                boolean dragonImmune = dev.rasengan.RasenganEntities.DRAGON.get()
+                        .builtInRegistryHolder().is(immuneTag);
+                boolean witherImmune = net.minecraft.world.entity.EntityType.WITHER
+                        .builtInRegistryHolder().is(immuneTag);
+                boolean enderImmune = net.minecraft.world.entity.EntityType.ENDER_DRAGON
+                        .builtInRegistryHolder().is(immuneTag);
+                boolean zombieImmune = net.minecraft.world.entity.EntityType.ZOMBIE
+                        .builtInRegistryHolder().is(immuneTag);
+                log("fear_immune tag: dragon=" + dragonImmune + " wither=" + witherImmune
+                        + " ender_dragon=" + enderImmune + " zombie=" + zombieImmune);
+                check(dragonImmune,
+                        "the tag file loaded and our own dragon is fear-immune, so two dragons will "
+                                + "not flee from each other");
+                check(witherImmune && enderImmune, "vanilla bosses are in the fear-immune tag");
+                check(!zombieImmune, "an ordinary hostile is NOT in the fear-immune tag");
             }
             case 7 -> {
                 PowerData data = ServerSummonManager.data(s.summoner);
@@ -478,15 +585,48 @@ public final class SummonAudit {
                             (RasenganSummonPayloads.SummonStart) theirs.get(0);
                     check(a.equals(b), "both players got byte-identical SummonStart data (same seed "
                             + a.seed() + ")");
-                    log("SummonStart: summonerId=" + a.summonerId() + " origin=(" + a.x() + "," + a.y()
-                            + "," + a.z() + ") total=" + a.totalTicks() + " reveal=" + a.revealTick()
-                            + " camera=" + a.cameraStart() + ".." + a.cameraEnd());
+                    log("SummonStart: summonerId=" + a.summonerId() + " dragonId=" + a.dragonId()
+                            + " origin=(" + a.x() + "," + a.y() + "," + a.z() + ") total="
+                            + a.totalTicks() + " reveal=" + a.revealTick()
+                            + " release=" + a.cameraReleaseTicks() + " radius=" + a.cameraRadius()
+                            + " density=" + a.smokeDensity() + " vignette=" + a.vignette());
                     check(a.totalTicks() == total && a.revealTick() == configuredReveal,
                             "SummonStart carries the configured timings");
                     check(a.summonerId() == s.summoner.getId(),
                             "SummonStart identifies the summoner by entity id");
-                    check(Math.abs(a.x() - 0.5D) < 1.0E-9 && Math.abs(a.z() - 0.5D) < 1.0E-9,
-                            "the seal is pinned to where the summoner stood");
+                    check(a.cameraEnabled() == RasenganConfig.SERVER.summonCameraEffect.get(),
+                            "SummonStart's camera flag matches the config toggle");
+
+                    // ---- the pre-spawned dragon, on the FIRST tick of the sequence ----
+                    DragonEntity pre = firstDragon(s.level);
+                    check(pre != null, "the dragon already exists on the cinematic's first tick");
+                    if (pre != null) {
+                        check(a.dragonId() == pre.getId(),
+                                "SummonStart carries the pre-spawned dragon's entity id, so the "
+                                        + "client can warm its assets before the reveal");
+                        check(pre.isHiddenForSummon(), "the pre-spawned dragon is hidden");
+                        check(pre.isInvulnerable(),
+                                "the hidden dragon cannot be hit before it is revealed");
+                        check(pre.isNoAi(), "the hidden dragon runs no AI while it waits");
+                        check(pre.entranceTotalTicks() == total,
+                                "the dragon knows the cinematic length, for its wing phase ("
+                                        + pre.entranceTotalTicks() + ")");
+                        // Concentric: seal, smoke and dragon must share an XZ centre or the reveal
+                        // cannot work - the cloud would be beside the dragon rather than around it.
+                        double dxz = Math.hypot(pre.getX() - a.x(), pre.getZ() - a.z());
+                        log(String.format("dragon pre-spawned at %s; seal centre (%.2f, %.2f);"
+                                        + " horizontal offset %.4f", fmt(pre.position()), a.x(), a.z(), dxz));
+                        check(dxz < 1.0E-6D,
+                                "the dragon is concentric with the seal and the smoke column ("
+                                        + String.format("%.2e", dxz) + " blocks off)");
+                        check(pre.getY() > a.y(), "the dragon sits above the seal, not inside it");
+                        double fromPlayer = Math.hypot(a.x() - s.summoner.getX(),
+                                a.z() - s.summoner.getZ());
+                        check(fromPlayer > 4.0D,
+                                "the seal is placed in front of the summoner, not underfoot ("
+                                        + String.format("%.2f", fromPlayer) + " blocks)");
+                        s.preSpawnSeen = true;
+                    }
                 }
                 PowerData after = ServerSummonManager.data(s.summoner);
                 check(after.state() == PowerState.CASTING,
@@ -516,26 +656,59 @@ public final class SummonAudit {
         int dragons = dragonCount(s.level);
         s.maxDragons = Math.max(s.maxDragons, dragons);
 
-        if (s.revealTick < 0 && dragons > 0) {
+        // The dragon now EXISTS from tick 0, so "revealed" is the hidden flag clearing, not the
+        // entity appearing. Detecting it by entity count - as this harness used to - would now report
+        // the reveal on the sequence's first tick and pass while the timing was completely wrong.
+        DragonEntity watched = firstDragon(s.level);
+        if (s.revealTick < 0 && watched != null && !watched.isHiddenForSummon()) {
             s.revealTick = s.t;
             int delta = s.t - s.summonTick;
-            log("dragon appeared at scenario tick " + s.t + " = summon+" + delta);
+            log("dragon became visible at scenario tick " + s.t + " = summon+" + delta);
             check(delta == configuredReveal,
                     "reveal landed on the configured tick (" + delta + " vs " + configuredReveal + ")");
-            check(dragons == 1, "exactly one dragon appeared, got " + dragons);
-            DragonEntity dragon = firstDragon(s.level);
-            if (dragon != null) {
-                check(dragon.isEntering(), "the dragon starts its arrival flourish");
-                check(dragon.summoner() != null
-                                && dragon.summoner().equals(s.summoner.getUUID()),
-                        "the dragon records its summoner for the one-per-player limit");
-                check(ServerSummonManager.activeDragonCount() == 1,
-                        "the manager is tracking one live dragon");
-                s.firstDragonPos = dragon.position();
-                log("dragon spawned at " + fmt(dragon.position()) + ", summoner at "
-                        + fmt(s.summoner.position()) + ", distance "
-                        + String.format("%.2f", dragon.position().distanceTo(s.summoner.position())));
+            check(dragons == 1, "exactly one dragon exists at the reveal, got " + dragons);
+            check(!watched.isInvulnerable(),
+                    "the dragon becomes hittable the moment it becomes visible");
+            check(!watched.isNoAi(), "the dragon's AI is released at the reveal");
+            check(watched.isEntering(), "the dragon is still inside its arrival sequence");
+            check(watched.summoner() != null
+                            && watched.summoner().equals(s.summoner.getUUID()),
+                    "the dragon records its summoner for the one-per-player limit");
+            check(ServerSummonManager.activeDragonCount() == 1,
+                    "the manager is tracking one live dragon");
+            s.firstDragonPos = watched.position();
+            log("dragon revealed at " + fmt(watched.position()) + ", summoner at "
+                    + fmt(s.summoner.position()) + ", distance "
+                    + String.format("%.2f", watched.position().distanceTo(s.summoner.position())));
+
+            // ---- fear, applied on this same tick ----
+            s.fearAtReveal = DragonFearManager.frightenedCount();
+            log("hostile mobs frightened on the reveal beat: " + s.fearAtReveal
+                    + " (of " + s.mobsPlaced + " placed)");
+            check(s.fearAtReveal == s.mobsPlaced,
+                    "every hostile inside the radius was frightened (" + s.fearAtReveal + "/"
+                            + s.mobsPlaced + ")");
+            check(DragonFearManager.frightenedCount() > 0
+                            || !RasenganConfig.SERVER.fearEnabled.get(),
+                    "the fear reaction fired");
+            for (net.minecraft.world.entity.Mob mob : s.fearTargets) {
+                int left = DragonFearManager.ticksLeftFor(mob);
+                check(left > 0, mob.getType().toShortString() + " has fear ticks remaining (" + left + ")");
+                check(mob.getTarget() == null,
+                        mob.getType().toShortString() + " dropped its attack target");
+                boolean hasGoal = mob.goalSelector.getAvailableGoals().stream()
+                        .anyMatch(w -> w.getGoal() instanceof FleeFromDragonGoal);
+                check(hasGoal, mob.getType().toShortString()
+                        + " has a real flee goal inserted, not just a debuff");
+                s.fearStartPos.add(mob.position());
             }
+            // The one mob outside the radius must be untouched - otherwise "radius" means nothing.
+            if (s.farMob != null) {
+                check(DragonFearManager.ticksLeftFor(s.farMob) < 0,
+                        "a hostile outside the fear radius was NOT frightened");
+            }
+            check(DragonFearManager.ticksLeftFor(watched) < 0,
+                    "the dragon did not frighten itself");
         }
 
         // Count awakening announcements for the whole run, on both players.
@@ -567,6 +740,65 @@ public final class SummonAudit {
             s.observer.clear();
         }
 
+        // ---- flee progress: are the frightened mobs actually moving away? ----
+        if (s.revealTick > 0 && !s.fearTargets.isEmpty() && s.fearStartPos.size() == s.fearTargets.size()) {
+            DragonEntity dragon = firstDragon(s.level);
+            if (dragon != null) {
+                for (int i = 0; i < s.fearTargets.size(); i++) {
+                    var mob = s.fearTargets.get(i);
+                    if (!mob.isAlive()) {
+                        continue;
+                    }
+                    double before = s.fearStartPos.get(i).distanceTo(dragon.position());
+                    double now = mob.position().distanceTo(dragon.position());
+                    s.maxFleeDistance = Math.max(s.maxFleeDistance, now - before);
+                }
+            }
+        }
+
+        // ---- fear expiry and cleanup ----
+        if (s.revealTick > 0 && s.fearExpiredTick < 0
+                && DragonFearManager.frightenedCount() == 0 && s.fearAtReveal > 0) {
+            s.fearExpiredTick = s.t;
+            int elapsed = s.t - s.revealTick;
+            int configured = RasenganConfig.SERVER.fearDurationTicks.get();
+            log("fear expired at scenario tick " + s.t + " = reveal+" + elapsed
+                    + " (configured " + configured + "t)");
+            log(String.format("furthest a frightened mob got from the dragon: %+.2f blocks",
+                    s.maxFleeDistance));
+            check(Math.abs(elapsed - configured) <= 2,
+                    "fear lasted the configured duration (" + elapsed + " vs " + configured + "t)");
+            check(s.maxFleeDistance > 1.0D,
+                    "frightened mobs actually moved away from the dragon (max "
+                            + String.format("%+.2f", s.maxFleeDistance) + " blocks)");
+
+            // The cleanup guarantee: no leftover goals, and targeting restored.
+            int leftover = 0;
+            int suppressed = 0;
+            for (var mob : s.fearTargets) {
+                if (!mob.isAlive()) {
+                    continue;
+                }
+                long goals = mob.goalSelector.getAvailableGoals().stream()
+                        .filter(w -> w.getGoal() instanceof FleeFromDragonGoal).count();
+                leftover += (int) goals;
+                if (mob.targetSelector.getAvailableGoals().isEmpty()) {
+                    continue;
+                }
+                if (DragonFearManager.isTargetingSuppressed(mob)) {
+                    suppressed++;
+                }
+            }
+            log("leftover flee goals after expiry: " + leftover
+                    + "; still-suppressed mobs: " + suppressed);
+            check(leftover == 0,
+                    "every temporary flee goal was removed - no permanently fleeing mobs ("
+                            + leftover + " left)");
+            check(suppressed == 0, "targeting suppression was lifted on every mob");
+            check(DragonFearManager.ticksLeftFor(s.fearTargets.get(0)) < 0,
+                    "the manager no longer tracks the expired mobs");
+        }
+
         if (s.endTick < 0 && s.t >= s.summonTick + total) {
             s.endTick = s.t;
             PowerData data = ServerSummonManager.data(s.summoner);
@@ -574,6 +806,29 @@ public final class SummonAudit {
                     + "; bar state=" + data.state() + " charge=" + data.chargeTicks());
             check(ServerSummonManager.pendingCount() == 0,
                     "the cinematic is finished and cleaned up");
+
+            // ---- SummonEnd ----
+            List<CustomPacketPayload> ends =
+                    s.summoner.mine(RasenganSummonPayloads.SummonEnd.class);
+            List<CustomPacketPayload> theirEnds =
+                    s.observer.mine(RasenganSummonPayloads.SummonEnd.class);
+            check(ends.size() == 1,
+                    "the summoner got exactly one SummonEnd (" + ends.size() + ")");
+            check(theirEnds.size() == 1,
+                    "the observer got the same SummonEnd, so their camera is released too ("
+                            + theirEnds.size() + ")");
+            if (!ends.isEmpty()) {
+                var end = (RasenganSummonPayloads.SummonEnd) ends.get(0);
+                log("SummonEnd: summonerId=" + end.summonerId() + " reason=" + end.reasonValue());
+                check(end.reasonValue() == RasenganSummonPayloads.SummonEnd.Reason.COMPLETED,
+                        "a sequence that ran to its end reports COMPLETED");
+                check(end.summonerId() == s.summoner.getId(),
+                        "SummonEnd identifies which sequence ended");
+                if (!theirEnds.isEmpty()) {
+                    check(end.equals(theirEnds.get(0)),
+                            "both players got byte-identical SummonEnd data");
+                }
+            }
             check(data.state() == PowerState.CHARGING,
                     "the bar resumes charging only after the whole sequence, got " + data.state());
             check(s.announceCount == 1,
@@ -653,8 +908,54 @@ public final class SummonAudit {
             check(ServerSummonManager.pendingCount() == 1,
                     "the reopened gate really did start a fresh cinematic");
             check(s.lateGateChecks == 1, "the ownership refusal really was exercised");
+            s.summoner.clear();
+            s.observer.clear();
+        }
+
+        // ---- INTERRUPTION ----
+        //
+        // The fresh cinematic started two steps above is now killed off mid-flight by removing the
+        // summoner, which is what a disconnect looks like to the manager. Three things must happen:
+        // the clients must be told (or their cameras keep rolling for a summon that no longer
+        // exists), the never-revealed dragon must be discarded rather than left hidden and frozen in
+        // the world forever, and the bar must be released.
+        if (s.endTick > 0 && s.t == s.endTick + 116) {
+            DragonEntity hidden = firstDragon(s.level);
+            log("---- interruption test ----");
+            check(ServerSummonManager.pendingCount() == 1, "a cinematic is running to interrupt");
+            check(hidden != null && hidden.isHiddenForSummon(),
+                    "its dragon is pre-spawned and still hidden");
+            s.interruptedDragon = hidden;
+            s.observer.clear();
+            // Kill the summoner mid-sequence. interruptionReason() treats a dead summoner the same
+            // way as a disconnect, a dimension change or entering spectator.
+            s.summoner.setHealth(0.0F);
+            log("summoner killed at scenario tick " + s.t + " mid-cinematic");
         }
         if (s.endTick > 0 && s.t == s.endTick + 118) {
+            check(ServerSummonManager.pendingCount() == 0,
+                    "the interrupted cinematic was abandoned ("
+                            + ServerSummonManager.pendingCount() + " still pending)");
+            check(s.interruptedDragon == null || s.interruptedDragon.isRemoved(),
+                    "the never-revealed dragon was discarded, not left hidden in the world");
+            check(dragonCount(s.level) == 0,
+                    "no leftover dragon after the interruption (" + dragonCount(s.level) + ")");
+
+            List<CustomPacketPayload> ends =
+                    s.observer.mine(RasenganSummonPayloads.SummonEnd.class);
+            check(!ends.isEmpty(),
+                    "the observer was told the sequence ended, so their camera is restored");
+            if (!ends.isEmpty()) {
+                var end = (RasenganSummonPayloads.SummonEnd) ends.get(ends.size() - 1);
+                log("SummonEnd on interruption: reason=" + end.reasonValue());
+                check(end.reasonValue() == RasenganSummonPayloads.SummonEnd.Reason.INTERRUPTED,
+                        "the interruption is reported as INTERRUPTED, not COMPLETED");
+            }
+            check(DragonFearManager.frightenedCount() == 0,
+                    "no fear was applied by a sequence that never reached its reveal ("
+                            + DragonFearManager.frightenedCount() + ")");
+        }
+        if (s.endTick > 0 && s.t == s.endTick + 121) {
             log("---- teardown ----");
             ServerSummonManager.clearAll();
             killDragons(s.level);

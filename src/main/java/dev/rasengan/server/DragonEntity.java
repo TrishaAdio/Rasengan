@@ -103,6 +103,29 @@ public class DragonEntity extends Monster implements GeoEntity {
     private static final EntityDataAccessor<Byte> DATA_FLIGHT_STATE =
             SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.BYTE);
 
+    /**
+     * True while the dragon exists but must not be drawn.
+     *
+     * <p>Used for the summoning pre-spawn: the entity is created on the cinematic's <em>first</em>
+     * tick and held hidden until the reveal beat, so that entity construction, attribute setup, chunk
+     * work and - on the client - GeckoLib model and texture loading all happen while the screen is
+     * full of smoke, instead of landing on the frame the smoke clears. That frame used to carry the
+     * whole spawn cost, which is a real frame-time spike and is indistinguishable from a camera hitch.
+     */
+    private static final EntityDataAccessor<Boolean> DATA_HIDDEN =
+            SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.BOOLEAN);
+
+    /**
+     * Total length of the summoning cinematic this dragon was spawned by, or 0 if it was not.
+     *
+     * <p>Replicated because the client needs it to drive the entrance wing phase. While
+     * {@code tickCount < entranceTotal} the dragon is inside its arrival sequence, and because it is
+     * spawned on cinematic tick 0, {@code tickCount} <em>is</em> the cinematic tick - so both sides
+     * share a clock without another packet or a second counter to keep in step.
+     */
+    private static final EntityDataAccessor<Integer> DATA_ENTRANCE_TOTAL =
+            SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.INT);
+
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
     private final ServerBossEvent bossEvent = new ServerBossEvent(
@@ -181,6 +204,8 @@ public class DragonEntity extends Monster implements GeoEntity {
         super.defineSynchedData(builder);
         builder.define(DATA_BREATHING, false);
         builder.define(DATA_FLIGHT_STATE, STATE_GROUND_IDLE);
+        builder.define(DATA_HIDDEN, false);
+        builder.define(DATA_ENTRANCE_TOTAL, 0);
     }
 
     public boolean isFlyingEnabled() {
@@ -196,15 +221,59 @@ public class DragonEntity extends Monster implements GeoEntity {
     }
 
     /**
-     * Begins the arrival flourish: wings out, a roar, and a brief hold before normal AI takes over.
+     * Begins the arrival sequence, hidden.
      *
-     * <p>Kept short and implemented as a hold rather than a scripted path, so the handover into the
-     * existing flight AI needs no special case - once the counter expires the wander goal simply
-     * starts choosing destinations as usual.
+     * <p>Called on the cinematic's first tick, well before the dragon is visible. The entity holds
+     * position, takes no damage and runs no AI until {@link #revealFromSummon()}, so the whole of its
+     * construction cost is paid during stages A and B rather than on the reveal frame.
+     *
+     * @param cinematicTicks total length of the summoning sequence, in ticks
      */
-    public void beginEntrance() {
-        this.entranceTicks = 30;
+    public void beginHiddenEntrance(int cinematicTicks) {
+        this.entranceTicks = cinematicTicks;
+        this.entityData.set(DATA_ENTRANCE_TOTAL, cinematicTicks);
+        this.entityData.set(DATA_HIDDEN, true);
         this.entityData.set(DATA_FLIGHT_STATE, STATE_FLAP);
+        setInvulnerable(true);
+        setNoAi(true);
+    }
+
+    /**
+     * The reveal beat: becomes visible and takes over its own fate.
+     *
+     * <p>Invulnerability and the AI freeze are lifted here, not at the end of the sequence, so that
+     * from the instant a player can see the dragon it is a real, hittable boss. The boss bar is also
+     * added here rather than on spawn, so no bar appears above an invisible entity.
+     */
+    public void revealFromSummon() {
+        this.entityData.set(DATA_HIDDEN, false);
+        setInvulnerable(false);
+        setNoAi(false);
+        if (RasenganConfig.SERVER.dragonBossBar.get() && level() instanceof ServerLevel serverLevel) {
+            for (ServerPlayer player : serverLevel.players()) {
+                if (player.distanceToSqr(this) <= 64.0D * 64.0D) {
+                    bossEvent.addPlayer(player);
+                }
+            }
+        }
+    }
+
+    /** Aborts a sequence that will never reach its reveal, leaving nothing behind. */
+    public void cancelHiddenEntrance() {
+        this.entranceTicks = 0;
+        this.entityData.set(DATA_ENTRANCE_TOTAL, 0);
+        bossEvent.removeAllPlayers();
+        discard();
+    }
+
+    /** True while drawn nowhere: pre-reveal, or aborted. */
+    public boolean isHiddenForSummon() {
+        return this.entityData.get(DATA_HIDDEN);
+    }
+
+    /** Total cinematic length, or 0 if this dragon was not summoned by one. */
+    public int entranceTotalTicks() {
+        return this.entityData.get(DATA_ENTRANCE_TOTAL);
     }
 
     public boolean isEntering() {
@@ -392,12 +461,18 @@ public class DragonEntity extends Monster implements GeoEntity {
         }
         if (entranceTicks > 0) {
             entranceTicks--;
-            // Hold roughly in place during the flourish so it reads as rising out of the seal
-            // rather than immediately flying off. Gentle lift, no horizontal drive.
-            setDeltaMovement(getDeltaMovement().multiply(0.6D, 1.0D, 0.6D).add(0.0D, 0.06D, 0.0D));
+            if (isHiddenForSummon()) {
+                // Pre-reveal: completely still. Any drift here would move the dragon away from the
+                // point the smoke column is centred on, and it would then be revealed off-centre.
+                setDeltaMovement(Vec3.ZERO);
+            } else {
+                // Post-reveal: gentle lift, no horizontal drive, so it reads as rising out of the
+                // seal rather than immediately flying off.
+                setDeltaMovement(getDeltaMovement().multiply(0.6D, 1.0D, 0.6D).add(0.0D, 0.06D, 0.0D));
+            }
             // Deliberately silent: ServerSummonManager already plays the reveal sound at the spawn
-            // point on this same tick, at the configured volume. A second play of the same 1.6s
-            // sample from the entity would overlap itself and ignore sound_volume.
+            // point on the reveal tick, at the configured volume. A second play of the same sample
+            // from the entity would overlap itself and ignore sound_volume.
         }
         updateFlightState();
         tickBreath((ServerLevel) level());
@@ -416,7 +491,10 @@ public class DragonEntity extends Monster implements GeoEntity {
     @Override
     public void startSeenByPlayer(ServerPlayer player) {
         super.startSeenByPlayer(player);
-        if (RasenganConfig.SERVER.dragonBossBar.get()) {
+        // Not while hidden: a boss bar over an invisible entity gives the reveal away before the
+        // smoke clears, which is the one thing the pre-spawn must not cost. revealFromSummon() adds
+        // the bar for everyone in range at the moment it becomes visible.
+        if (RasenganConfig.SERVER.dragonBossBar.get() && !isHiddenForSummon()) {
             bossEvent.addPlayer(player);
         }
     }
@@ -600,14 +678,39 @@ public class DragonEntity extends Monster implements GeoEntity {
         // mob is only intermittently synced - so it could play a flap cycle at a standstill.
         // 5-tick transitions blend between cycles instead of cutting.
         controllers.add(new AnimationController<DragonEntity>("locomotion", 5, test -> {
-            RawAnimation animation = switch (test.animatable().flightState()) {
+            DragonEntity dragon = test.animatable();
+            RawAnimation animation = switch (dragon.flightState()) {
                 case STATE_GROUND_WALK -> ANIM_WALK;
                 case STATE_FLAP -> ANIM_FLY;
                 case STATE_GLIDE -> ANIM_GLIDE;
                 case STATE_HOVER -> ANIM_FLY;
                 default -> ANIM_IDLE;
             };
-            return test.setAndContinue(animation);
+            PlayState result = test.setAndContinue(animation);
+
+            // ---- Entrance: force the wing phase instead of letting it free-run ----
+            //
+            // During the arrival the flap phase is pinned to a pure function of the dragon's own age,
+            // so that the downbeat lands on the tick the smoke dispersal fires. Left to itself the
+            // phase is anchored to whenever GeckoLib first initialised the controller, which is the
+            // first frame this client actually *rendered* the dragon: read out of
+            // AnimationController.checkControllerState, initializeNewAnimation sets timelineTime = 0
+            // on that first call regardless of entity age. A player who was looking elsewhere at the
+            // reveal and turned around later would therefore get a different phase from everyone
+            // else, and their wings would beat out of step with their smoke.
+            //
+            // Forcing it also removes the transition offset: AnimationTimeline.create prepends the
+            // controller's transition as a stage, so the animation's own t=0 sits transitionTicks
+            // later - setAnimationTime(t) maps through the current stage and cancels that out.
+            int total = dragon.entranceTotalTicks();
+            if (total > 0 && animation == ANIM_FLY) {
+                float age = (float) test.renderState().getAnimatableAge();
+                if (age < total) {
+                    float phase = dev.rasengan.SummonTimeline.entranceWingPhase(age);
+                    test.controller().setAnimationTime(phase / 20.0D);
+                }
+            }
+            return result;
         }));
 
         controllers.add(new AnimationController<DragonEntity>("action", 0, test -> {

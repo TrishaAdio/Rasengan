@@ -10,6 +10,7 @@ Recorded here so the origin of every shipped sound is documented rather than imp
 | `rasengan_spin.ogg` | **Imported from a source recording supplied by the project owner**, processed by `tools/import_sounds.py` | See the caveat below. |
 | `summon_buildup.ogg` | **Synthesised from scratch** by `tools/generate_summon_sounds.py` | Original. No licensing question — see below. |
 | `summon_reveal.ogg` | **Synthesised from scratch** by `tools/generate_summon_sounds.py` | Original. No licensing question — see below. |
+| `summon_roar.ogg` | **Not shipped.** Gitignored; installed locally by `tools/install_summon_roar.sh` | Could not be cleared for redistribution — see "The roar" below. |
 
 ## The two summon sounds are original, and are not affected by the caveat below
 
@@ -21,8 +22,62 @@ them.
 
 | file | duration | bytes | format |
 |---|---|---|---|
-| `summon_buildup.ogg` | 3.50 s | 38,091 | Vorbis, mono, 44.1 kHz |
-| `summon_reveal.ogg` | 1.60 s | 20,149 | Vorbis, mono, 44.1 kHz |
+| `summon_buildup.ogg` | 1.60 s | 19,691 | Vorbis, mono, 44.1 kHz |
+| `summon_reveal.ogg` | 1.45 s | 18,792 | Vorbis, mono, 44.1 kHz |
+
+Both were **regenerated** when the cinematic was rebuilt into five stages. The durations are not
+arbitrary and are no longer hard-coded independently: `BUILDUP_SECONDS` is the reveal tick and
+`REVEAL_SECONDS` spans the reveal and dispersal stages, both derived at the top of the script from
+the same reference layout as `dev.rasengan.SummonTimeline`. They were 3.50 s and 1.60 s when the
+reveal sat at tick 70; the rebuild moved the reveal to tick 32, and a 3.50 s buildup would have gone
+on droning through the reveal, the dispersal *and* the settle — the exact thing its abrupt cut exists
+to avoid. If the stage layout changes again, re-run the script.
+
+## The roar — `summon_roar.ogg` is deliberately NOT in this repository
+
+An audio file was supplied for the summon (`https://files.catbox.moe/pk2622.m4a`). It is **not
+bundled**. What its metadata showed, in full:
+
+| Field | Value |
+|---|---|
+| `major_brand` | `M4A ` |
+| `compatible_brands` | `M4A `, `isom`, `iso2` |
+| `encoder` | **`Lavf60.16.100`** — FFmpeg's libavformat 60.16, i.e. FFmpeg 6.1 |
+| Stream | AAC-LC, 44 100 Hz, **stereo**, 127 kb/s, 20.83 s |
+| Tracks | one audio track, no video track |
+| DASH brands (`dash`, `dsms`, `msix`) | absent |
+| Fragmented-MP4 boxes (`moof`, `sidx`, `styp`) | absent |
+| ID3 / iTunes tags | absent |
+
+**Why the usual screen does not clear this file.** The check that rejected two earlier candidates in
+this project was the presence of MP4/DASH container brands, which mark audio demuxed from a streaming
+video. Those brands are absent here — but that proves much less than it did for those files, and the
+difference matters. Those were *raw* streaming segments. This one was **written by FFmpeg**, and an
+FFmpeg remux replaces the container outright, erasing precisely the brands the screen looks for. So
+their absence is evidence only that FFmpeg touched the file, not that its provenance is clean. A
+127 kb/s lossy **stereo** AAC is also a delivery bitrate rather than anything master-like.
+
+Nothing in the file identifies an author or a licence, and neither is determinable from a file. This
+repository is public under MIT and ships a compiled jar, so redistribution rights matter, and
+**absence of a rip fingerprint is not clearance**. The file therefore stays out of version control
+and out of the jar.
+
+**How it is wired instead.** `tools/install_summon_roar.sh <file-or-url>` converts a file *you*
+supply to mono 44.1 kHz OGG Vorbis, loudness-normalises it, fades 40 ms at each end so an interrupted
+sequence cannot leave a click, and writes
+`src/main/resources/assets/rasengan/sounds/summon_roar.ogg` — which is gitignored. This is the same
+local-only mechanism option 2 below describes for the ability audio, and the same shape as
+`tools/dragon/install_dragon_asset.sh`.
+
+Nothing guards the playback call, and nothing needs to. `SoundManager.validateSoundResource` logs
+`File ... does not exist, cannot add it to event ...` once at resource load and then simply does not
+add the sound to the event, so playing it is a **silent no-op** for anyone who has not installed a
+file. One warning line in the client log is the entire cost of the feature being absent — which is
+why it needs no config flag and no existence check.
+
+**The mod is complete without it.** `summon_buildup.ogg` covers stage A's rumble and
+`summon_reveal.ogg` the stage-B eruption and stage-C impact; both are synthesised from scratch and
+both are committed. The roar is additive only.
 
 Both were checked for the same rip fingerprints as the imported audio and, as expected for
 synthesised files, carry no ID3 frames and no MP4/DASH container brands.

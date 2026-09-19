@@ -51,6 +51,7 @@ public final class Rasengan {
         ServerPowerManager.register(gameBus);
         ServerCastManager.register(gameBus);
         dev.rasengan.server.ServerSummonManager.register(gameBus);
+        dev.rasengan.server.DragonFearManager.register(gameBus);
         gameBus.addListener(Rasengan::registerCommands);
         gameBus.addListener(Rasengan::registerReloadListeners);
         gameBus.addListener(Rasengan::onServerStopping);
@@ -126,6 +127,10 @@ public final class Rasengan {
         registrar.playToClient(
                 dev.rasengan.network.RasenganSummonPayloads.SummonStart.TYPE,
                 dev.rasengan.network.RasenganSummonPayloads.SummonStart.CODEC,
+                Rasengan::toClient);
+        registrar.playToClient(
+                dev.rasengan.network.RasenganSummonPayloads.SummonEnd.TYPE,
+                dev.rasengan.network.RasenganSummonPayloads.SummonEnd.CODEC,
                 Rasengan::toClient);
         registrar.playToServer(
                 dev.rasengan.network.RasenganSummonPayloads.SummonActivate.TYPE,

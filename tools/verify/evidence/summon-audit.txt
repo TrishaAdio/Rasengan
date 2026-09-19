@@ -1,8 +1,21 @@
-Summoning Jutsu verification - dedicated server, NeoForge 26.1.2.109 / MC 26.1.2
-Harness: tools/verify/SummonAudit.java driven by tools/verify/run_summon_test.sh
-Produced by: ./tools/verify/run_summon_test.sh
+Summoning Jutsu - live dedicated-server audit
+=============================================
 
-SUMMONAUDIT harness registered
+Produced by: tools/verify/run_summon_test.sh
+Minecraft 26.1.2 / NeoForge 26.1.2.109, dedicated server, flat world,
+pause-when-empty-seconds=0, 225 forceloaded chunks.
+
+The harness (tools/verify/SummonAudit.java) inserts two real ServerPlayer instances into the
+real PlayerList over a socket-less Connection and records their outbound packets instead of
+writing them. It calls doTick() itself, because ServerPlayer.tick() does not call
+Player.tick() in 26.1 and the charge bars would otherwise sit at 0.
+
+NOT verified here, and not verifiable in this environment: anything visual or audible.
+No display and no audio device. See the 'Not verified' section of SUMMONING.md.
+
+-----------------------------------------------------------------------------------
+
+harness registered
 poolSize=64 loadedTotal=64 files=[rasengan:awakening]
 configured resource=rasengan:awakening (from config value 'rasengan:awakening')
 PASS configured resource is among the loaded files
@@ -11,15 +24,22 @@ PASS at least 50 speakable lines (brief asks 50+), got 64
 PASS every line in the pool is reachable by pick() (64/64)
 PASS no line uses legacy section codes
 PASS an unknown configured resource still speaks rather than falling silent
-PASS SummonStart survives encode/decode (41 bytes)
+PASS SummonStart survives encode/decode (48 bytes)
 PASS SummonStart decode consumed exactly what encode wrote
-PASS packed camera window unpacks to 45..95, got 45..95
-PASS camera window reports enabled when non-zero
-PASS camera window reports disabled when zero
+PASS SummonStart carries the pre-spawned dragon id through the wire
+PASS a non-zero release length means the camera effect is on
+PASS a zero release length means the camera effect is off
+PASS SummonEnd/COMPLETED survives encode/decode (2 bytes)
+PASS SummonEnd/COMPLETED decode consumed exactly what encode wrote
+PASS SummonEnd/INTERRUPTED survives encode/decode (2 bytes)
+PASS SummonEnd/INTERRUPTED decode consumed exactly what encode wrote
+PASS an unknown SummonEnd reason falls back to INTERRUPTED, so a version mismatch releases the camera rather than stranding it
 PASS SummonPowerSync survives encode/decode
 PASS SummonActivate writes zero bytes (intent only, nothing to forge)
 ---- scenario start ----
-config: charge=6000t total=100t reveal=70t camera=45..95 camera_enabled=true
+config: charge=6000t total=70t reveal=32t camera_enabled=true release=12t
+stages: A 0-12.00  B -32.00  C -49.17  D -61.17  E -70  (dispersal wing-aligned=true)
+fear: enabled=true radius=24.0 duration=140t suppress=true
 two synthetic players joined; playerList size=2
 summoner bar after 3 ticks: state=CHARGING charge=3
 PASS a fresh summoning bar starts CHARGING, not READY
@@ -30,37 +50,76 @@ PASS trySummon refuses while the bar is CHARGING
 PASS the refusal is explained to the player (chat=1)
 refusal text: Your summoning power is still gathering.
 PASS no cinematic started on refusal
+placed 3 hostiles inside the fear radius, 1 outside it
+PASS three test hostiles were placed (3)
+PASS nothing is frightened before the summon
+fear_immune tag: dragon=true wither=true ender_dragon=true zombie=false
+PASS the tag file loaded and our own dragon is fear-immune, so two dragons will not flee from each other
+PASS vanilla bosses are in the fear-immune tag
+PASS an ordinary hostile is NOT in the fear-immune tag
 summoning bar forced to READY
 cast bar: state=CHARGING charge=8 | summon bar: state=READY charge=6000
 PASS the two bars are independent: the summoning bar is full while the cast bar is still on its first few ticks
 PASS trySummon succeeds at READY
 PASS summoner got exactly one SummonStart (1)
 PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
-PASS both players got byte-identical SummonStart data (same seed -189958022814226609)
-SummonStart: summonerId=1 origin=(0.5,-60.0,0.5) total=100 reveal=70 camera=45..95
+PASS both players got byte-identical SummonStart data (same seed -2648856159056896179)
+SummonStart: summonerId=1 dragonId=12 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
 PASS SummonStart carries the configured timings
 PASS SummonStart identifies the summoner by entity id
-PASS the seal is pinned to where the summoner stood
+PASS SummonStart's camera flag matches the config toggle
+PASS the dragon already exists on the cinematic's first tick
+PASS SummonStart carries the pre-spawned dragon's entity id, so the client can warm its assets before the reveal
+PASS the pre-spawned dragon is hidden
+PASS the hidden dragon cannot be hit before it is revealed
+PASS the hidden dragon runs no AI while it waits
+PASS the dragon knows the cinematic length, for its wing phase (70)
+dragon pre-spawned at (0.50, -58.00, 9.50); seal centre (0.50, 9.50); horizontal offset 0.0000
+PASS the dragon is concentric with the seal and the smoke column (0.00e+00 blocks off)
+PASS the dragon sits above the seal, not inside it
+PASS the seal is placed in front of the summoner, not underfoot (9.00 blocks)
 PASS the bar goes to CASTING for the duration, got CASTING
 PASS the bar is spent immediately, not on completion
 PASS exactly one cinematic is pending
 PASS a second press mid-cinematic is ignored
 PASS the mid-cinematic press is silent rather than spamming chat (0)
 PASS still exactly one cinematic pending
-dragon appeared at scenario tick 78 = summon+70
-PASS reveal landed on the configured tick (70 vs 70)
-PASS exactly one dragon appeared, got 1
-PASS the dragon starts its arrival flourish
+dragon became visible at scenario tick 40 = summon+32
+PASS reveal landed on the configured tick (32 vs 32)
+PASS exactly one dragon exists at the reveal, got 1
+PASS the dragon becomes hittable the moment it becomes visible
+PASS the dragon's AI is released at the reveal
+PASS the dragon is still inside its arrival sequence
 PASS the dragon records its summoner for the one-per-player limit
 PASS the manager is tracking one live dragon
-dragon spawned at (0.50, -58.00, 8.50), summoner at (0.50, -60.00, 0.50), distance 8.25
-awakening line: [Demonic Wingwalker] Why do you keep waking me up to deal with this? Handle it yourself.
+dragon revealed at (0.50, -58.00, 9.50), summoner at (0.50, -60.00, 0.50), distance 9.22
+hostile mobs frightened on the reveal beat: 3 (of 3 placed)
+PASS every hostile inside the radius was frightened (3/3)
+PASS the fear reaction fired
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS a hostile outside the fear radius was NOT frightened
+PASS the dragon did not frighten itself
+awakening line: [Demonic Wingwalker] Your ancestors whispered my name. You just yell it.
 PASS the nearby player received the line too (1)
 PASS both players received the identical component, so the server picked the line
 PASS the announcement carries no legacy section codes
 PASS the line fires on the reveal tick, not earlier or later
-sequence end at scenario tick 108 = summon+100; bar state=CHARGING charge=1
+sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
 PASS the cinematic is finished and cleaned up
+PASS the summoner got exactly one SummonEnd (1)
+PASS the observer got the same SummonEnd, so their camera is released too (1)
+SummonEnd: summonerId=1 reason=COMPLETED
+PASS a sequence that ran to its end reports COMPLETED
+PASS SummonEnd identifies which sequence ended
+PASS both players got byte-identical SummonEnd data
 PASS the bar resumes charging only after the whole sequence, got CHARGING
 PASS the awakening line fired exactly once for the summon (1)
 PASS never more than one dragon existed (1)
@@ -70,9 +129,17 @@ PASS the one-dragon-per-player refusal is explained (1 message(s))
 refusal text: Your dragon is already here. It will not come twice.
 PASS the refusal did not spawn a second dragon
 PASS the refusal started no cinematic
-flight after the cinematic: 99 samples, path 50.15 blocks, mean 0.507 b/t, stalled ticks 0
+fear expired at scenario tick 181 = reveal+141 (configured 140t)
+furthest a frightened mob got from the dragon: +7.78 blocks
+PASS fear lasted the configured duration (141 vs 140t)
+PASS frightened mobs actually moved away from the dragon (max +7.78 blocks)
+leftover flee goals after expiry: 0; still-suppressed mobs: 0
+PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
+PASS targeting suppression was lifted on every mob
+PASS the manager no longer tracks the expired mobs
+flight after the cinematic: 99 samples, path 49.46 blocks, mean 0.500 b/t, stalled ticks 0
 PASS the summoned dragon never stalls (0 ticks)
-PASS the summoned dragon genuinely flies off under the normal AI (50.15 blocks)
+PASS the summoned dragon genuinely flies off under the normal AI (49.46 blocks)
 PASS the arrival flourish has ended and normal AI has the entity
 killing the dragon to test that the gate reopens
 PASS dragon is gone
@@ -80,11 +147,167 @@ PASS the manager pruned the dead dragon (0)
 PASS once the dragon is dead the player may summon again
 PASS the reopened gate really did start a fresh cinematic
 PASS the ownership refusal really was exercised
+---- interruption test ----
+PASS a cinematic is running to interrupt
+PASS its dragon is pre-spawned and still hidden
+summoner killed at scenario tick 194 mid-cinematic
+PASS the interrupted cinematic was abandoned (0 still pending)
+PASS the never-revealed dragon was discarded, not left hidden in the world
+PASS no leftover dragon after the interruption (0)
+PASS the observer was told the sequence ended, so their camera is restored
+SummonEnd on interruption: reason=INTERRUPTED
+PASS the interruption is reported as INTERRUPTED, not COMPLETED
+PASS no fear was applied by a sequence that never reached its reveal (0)
 ---- teardown ----
 PASS synthetic players removed
 ===== BEGIN REPORT =====
-===== END REPORT: 60 pass, 0 fail =====
-SUMMONAUDIT harness registered
+harness registered
+poolSize=64 loadedTotal=64 files=[rasengan:awakening]
+configured resource=rasengan:awakening (from config value 'rasengan:awakening')
+PASS configured resource is among the loaded files
+PASS at least 50 speakable lines (brief asks 50+), got 64
+4000 picks yielded 64 distinct lines
+PASS every line in the pool is reachable by pick() (64/64)
+PASS no line uses legacy section codes
+PASS an unknown configured resource still speaks rather than falling silent
+PASS SummonStart survives encode/decode (48 bytes)
+PASS SummonStart decode consumed exactly what encode wrote
+PASS SummonStart carries the pre-spawned dragon id through the wire
+PASS a non-zero release length means the camera effect is on
+PASS a zero release length means the camera effect is off
+PASS SummonEnd/COMPLETED survives encode/decode (2 bytes)
+PASS SummonEnd/COMPLETED decode consumed exactly what encode wrote
+PASS SummonEnd/INTERRUPTED survives encode/decode (2 bytes)
+PASS SummonEnd/INTERRUPTED decode consumed exactly what encode wrote
+PASS an unknown SummonEnd reason falls back to INTERRUPTED, so a version mismatch releases the camera rather than stranding it
+PASS SummonPowerSync survives encode/decode
+PASS SummonActivate writes zero bytes (intent only, nothing to forge)
+---- scenario start ----
+config: charge=6000t total=70t reveal=32t camera_enabled=true release=12t
+stages: A 0-12.00  B -32.00  C -49.17  D -61.17  E -70  (dispersal wing-aligned=true)
+fear: enabled=true radius=24.0 duration=140t suppress=true
+two synthetic players joined; playerList size=2
+summoner bar after 3 ticks: state=CHARGING charge=3
+PASS a fresh summoning bar starts CHARGING, not READY
+PASS the summoning bar is actually accumulating (charge=3)
+PASS the summoner receives SummonPowerSync for its own bar
+PASS each player receives its own bar sync (observer has one too)
+PASS trySummon refuses while the bar is CHARGING
+PASS the refusal is explained to the player (chat=1)
+refusal text: Your summoning power is still gathering.
+PASS no cinematic started on refusal
+placed 3 hostiles inside the fear radius, 1 outside it
+PASS three test hostiles were placed (3)
+PASS nothing is frightened before the summon
+fear_immune tag: dragon=true wither=true ender_dragon=true zombie=false
+PASS the tag file loaded and our own dragon is fear-immune, so two dragons will not flee from each other
+PASS vanilla bosses are in the fear-immune tag
+PASS an ordinary hostile is NOT in the fear-immune tag
+summoning bar forced to READY
+cast bar: state=CHARGING charge=8 | summon bar: state=READY charge=6000
+PASS the two bars are independent: the summoning bar is full while the cast bar is still on its first few ticks
+PASS trySummon succeeds at READY
+PASS summoner got exactly one SummonStart (1)
+PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
+PASS both players got byte-identical SummonStart data (same seed -2648856159056896179)
+SummonStart: summonerId=1 dragonId=12 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
+PASS SummonStart carries the configured timings
+PASS SummonStart identifies the summoner by entity id
+PASS SummonStart's camera flag matches the config toggle
+PASS the dragon already exists on the cinematic's first tick
+PASS SummonStart carries the pre-spawned dragon's entity id, so the client can warm its assets before the reveal
+PASS the pre-spawned dragon is hidden
+PASS the hidden dragon cannot be hit before it is revealed
+PASS the hidden dragon runs no AI while it waits
+PASS the dragon knows the cinematic length, for its wing phase (70)
+dragon pre-spawned at (0.50, -58.00, 9.50); seal centre (0.50, 9.50); horizontal offset 0.0000
+PASS the dragon is concentric with the seal and the smoke column (0.00e+00 blocks off)
+PASS the dragon sits above the seal, not inside it
+PASS the seal is placed in front of the summoner, not underfoot (9.00 blocks)
+PASS the bar goes to CASTING for the duration, got CASTING
+PASS the bar is spent immediately, not on completion
+PASS exactly one cinematic is pending
+PASS a second press mid-cinematic is ignored
+PASS the mid-cinematic press is silent rather than spamming chat (0)
+PASS still exactly one cinematic pending
+dragon became visible at scenario tick 40 = summon+32
+PASS reveal landed on the configured tick (32 vs 32)
+PASS exactly one dragon exists at the reveal, got 1
+PASS the dragon becomes hittable the moment it becomes visible
+PASS the dragon's AI is released at the reveal
+PASS the dragon is still inside its arrival sequence
+PASS the dragon records its summoner for the one-per-player limit
+PASS the manager is tracking one live dragon
+dragon revealed at (0.50, -58.00, 9.50), summoner at (0.50, -60.00, 0.50), distance 9.22
+hostile mobs frightened on the reveal beat: 3 (of 3 placed)
+PASS every hostile inside the radius was frightened (3/3)
+PASS the fear reaction fired
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS a hostile outside the fear radius was NOT frightened
+PASS the dragon did not frighten itself
+awakening line: [Demonic Wingwalker] Your ancestors whispered my name. You just yell it.
+PASS the nearby player received the line too (1)
+PASS both players received the identical component, so the server picked the line
+PASS the announcement carries no legacy section codes
+PASS the line fires on the reveal tick, not earlier or later
+sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
+PASS the cinematic is finished and cleaned up
+PASS the summoner got exactly one SummonEnd (1)
+PASS the observer got the same SummonEnd, so their camera is released too (1)
+SummonEnd: summonerId=1 reason=COMPLETED
+PASS a sequence that ran to its end reports COMPLETED
+PASS SummonEnd identifies which sequence ended
+PASS both players got byte-identical SummonEnd data
+PASS the bar resumes charging only after the whole sequence, got CHARGING
+PASS the awakening line fired exactly once for the summon (1)
+PASS never more than one dragon existed (1)
+PASS the dragon is still alive for the ownership test
+PASS a second summon is refused while the first dragon lives
+PASS the one-dragon-per-player refusal is explained (1 message(s))
+refusal text: Your dragon is already here. It will not come twice.
+PASS the refusal did not spawn a second dragon
+PASS the refusal started no cinematic
+fear expired at scenario tick 181 = reveal+141 (configured 140t)
+furthest a frightened mob got from the dragon: +7.78 blocks
+PASS fear lasted the configured duration (141 vs 140t)
+PASS frightened mobs actually moved away from the dragon (max +7.78 blocks)
+leftover flee goals after expiry: 0; still-suppressed mobs: 0
+PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
+PASS targeting suppression was lifted on every mob
+PASS the manager no longer tracks the expired mobs
+flight after the cinematic: 99 samples, path 49.46 blocks, mean 0.500 b/t, stalled ticks 0
+PASS the summoned dragon never stalls (0 ticks)
+PASS the summoned dragon genuinely flies off under the normal AI (49.46 blocks)
+PASS the arrival flourish has ended and normal AI has the entity
+killing the dragon to test that the gate reopens
+PASS dragon is gone
+PASS the manager pruned the dead dragon (0)
+PASS once the dragon is dead the player may summon again
+PASS the reopened gate really did start a fresh cinematic
+PASS the ownership refusal really was exercised
+---- interruption test ----
+PASS a cinematic is running to interrupt
+PASS its dragon is pre-spawned and still hidden
+summoner killed at scenario tick 194 mid-cinematic
+PASS the interrupted cinematic was abandoned (0 still pending)
+PASS the never-revealed dragon was discarded, not left hidden in the world
+PASS no leftover dragon after the interruption (0)
+PASS the observer was told the sequence ended, so their camera is restored
+SummonEnd on interruption: reason=INTERRUPTED
+PASS the interruption is reported as INTERRUPTED, not COMPLETED
+PASS no fear was applied by a sequence that never reached its reveal (0)
+---- teardown ----
+PASS synthetic players removed
+===== END REPORT: 112 pass, 0 fail =====
+harness registered
 poolSize=65 loadedTotal=65 files=[rasengan:awakening]
 configured resource=rasengan:awakening (from config value 'rasengan:awakening')
 PASS configured resource is among the loaded files
@@ -93,8 +316,8 @@ PASS speakable line count is exactly 65, got 65
 PASS every line in the pool is reachable by pick() (65/65)
 PASS no line uses legacy section codes
 PASS an unknown configured resource still speaks rather than falling silent
-SUMMONAUDIT harness registered
-SUMMONAUDIT harness registered
+harness registered
+harness registered
 poolSize=3 loadedTotal=5 files=[audit:extra, rasengan:awakening]
 configured resource=rasengan:awakening (from config value 'rasengan:awakening')
 PASS configured resource is among the loaded files
@@ -106,4 +329,170 @@ PASS an unknown configured resource still speaks rather than falling silent
 note: 2 line(s) are loaded from other files and correctly not spoken
 PASS an extra file that lines_resource does not point at is never spoken
 ===== BEGIN REPORT =====
-===== END REPORT: 71 pass, 0 fail =====
+harness registered
+poolSize=64 loadedTotal=64 files=[rasengan:awakening]
+configured resource=rasengan:awakening (from config value 'rasengan:awakening')
+PASS configured resource is among the loaded files
+PASS at least 50 speakable lines (brief asks 50+), got 64
+4000 picks yielded 64 distinct lines
+PASS every line in the pool is reachable by pick() (64/64)
+PASS no line uses legacy section codes
+PASS an unknown configured resource still speaks rather than falling silent
+PASS SummonStart survives encode/decode (48 bytes)
+PASS SummonStart decode consumed exactly what encode wrote
+PASS SummonStart carries the pre-spawned dragon id through the wire
+PASS a non-zero release length means the camera effect is on
+PASS a zero release length means the camera effect is off
+PASS SummonEnd/COMPLETED survives encode/decode (2 bytes)
+PASS SummonEnd/COMPLETED decode consumed exactly what encode wrote
+PASS SummonEnd/INTERRUPTED survives encode/decode (2 bytes)
+PASS SummonEnd/INTERRUPTED decode consumed exactly what encode wrote
+PASS an unknown SummonEnd reason falls back to INTERRUPTED, so a version mismatch releases the camera rather than stranding it
+PASS SummonPowerSync survives encode/decode
+PASS SummonActivate writes zero bytes (intent only, nothing to forge)
+---- scenario start ----
+config: charge=6000t total=70t reveal=32t camera_enabled=true release=12t
+stages: A 0-12.00  B -32.00  C -49.17  D -61.17  E -70  (dispersal wing-aligned=true)
+fear: enabled=true radius=24.0 duration=140t suppress=true
+two synthetic players joined; playerList size=2
+summoner bar after 3 ticks: state=CHARGING charge=3
+PASS a fresh summoning bar starts CHARGING, not READY
+PASS the summoning bar is actually accumulating (charge=3)
+PASS the summoner receives SummonPowerSync for its own bar
+PASS each player receives its own bar sync (observer has one too)
+PASS trySummon refuses while the bar is CHARGING
+PASS the refusal is explained to the player (chat=1)
+refusal text: Your summoning power is still gathering.
+PASS no cinematic started on refusal
+placed 3 hostiles inside the fear radius, 1 outside it
+PASS three test hostiles were placed (3)
+PASS nothing is frightened before the summon
+fear_immune tag: dragon=true wither=true ender_dragon=true zombie=false
+PASS the tag file loaded and our own dragon is fear-immune, so two dragons will not flee from each other
+PASS vanilla bosses are in the fear-immune tag
+PASS an ordinary hostile is NOT in the fear-immune tag
+summoning bar forced to READY
+cast bar: state=CHARGING charge=8 | summon bar: state=READY charge=6000
+PASS the two bars are independent: the summoning bar is full while the cast bar is still on its first few ticks
+PASS trySummon succeeds at READY
+PASS summoner got exactly one SummonStart (1)
+PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
+PASS both players got byte-identical SummonStart data (same seed -2648856159056896179)
+SummonStart: summonerId=1 dragonId=12 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
+PASS SummonStart carries the configured timings
+PASS SummonStart identifies the summoner by entity id
+PASS SummonStart's camera flag matches the config toggle
+PASS the dragon already exists on the cinematic's first tick
+PASS SummonStart carries the pre-spawned dragon's entity id, so the client can warm its assets before the reveal
+PASS the pre-spawned dragon is hidden
+PASS the hidden dragon cannot be hit before it is revealed
+PASS the hidden dragon runs no AI while it waits
+PASS the dragon knows the cinematic length, for its wing phase (70)
+dragon pre-spawned at (0.50, -58.00, 9.50); seal centre (0.50, 9.50); horizontal offset 0.0000
+PASS the dragon is concentric with the seal and the smoke column (0.00e+00 blocks off)
+PASS the dragon sits above the seal, not inside it
+PASS the seal is placed in front of the summoner, not underfoot (9.00 blocks)
+PASS the bar goes to CASTING for the duration, got CASTING
+PASS the bar is spent immediately, not on completion
+PASS exactly one cinematic is pending
+PASS a second press mid-cinematic is ignored
+PASS the mid-cinematic press is silent rather than spamming chat (0)
+PASS still exactly one cinematic pending
+dragon became visible at scenario tick 40 = summon+32
+PASS reveal landed on the configured tick (32 vs 32)
+PASS exactly one dragon exists at the reveal, got 1
+PASS the dragon becomes hittable the moment it becomes visible
+PASS the dragon's AI is released at the reveal
+PASS the dragon is still inside its arrival sequence
+PASS the dragon records its summoner for the one-per-player limit
+PASS the manager is tracking one live dragon
+dragon revealed at (0.50, -58.00, 9.50), summoner at (0.50, -60.00, 0.50), distance 9.22
+hostile mobs frightened on the reveal beat: 3 (of 3 placed)
+PASS every hostile inside the radius was frightened (3/3)
+PASS the fear reaction fired
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS zombie has fear ticks remaining (140)
+PASS zombie dropped its attack target
+PASS zombie has a real flee goal inserted, not just a debuff
+PASS a hostile outside the fear radius was NOT frightened
+PASS the dragon did not frighten itself
+awakening line: [Demonic Wingwalker] Your ancestors whispered my name. You just yell it.
+PASS the nearby player received the line too (1)
+PASS both players received the identical component, so the server picked the line
+PASS the announcement carries no legacy section codes
+PASS the line fires on the reveal tick, not earlier or later
+sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
+PASS the cinematic is finished and cleaned up
+PASS the summoner got exactly one SummonEnd (1)
+PASS the observer got the same SummonEnd, so their camera is released too (1)
+SummonEnd: summonerId=1 reason=COMPLETED
+PASS a sequence that ran to its end reports COMPLETED
+PASS SummonEnd identifies which sequence ended
+PASS both players got byte-identical SummonEnd data
+PASS the bar resumes charging only after the whole sequence, got CHARGING
+PASS the awakening line fired exactly once for the summon (1)
+PASS never more than one dragon existed (1)
+PASS the dragon is still alive for the ownership test
+PASS a second summon is refused while the first dragon lives
+PASS the one-dragon-per-player refusal is explained (1 message(s))
+refusal text: Your dragon is already here. It will not come twice.
+PASS the refusal did not spawn a second dragon
+PASS the refusal started no cinematic
+fear expired at scenario tick 181 = reveal+141 (configured 140t)
+furthest a frightened mob got from the dragon: +7.78 blocks
+PASS fear lasted the configured duration (141 vs 140t)
+PASS frightened mobs actually moved away from the dragon (max +7.78 blocks)
+leftover flee goals after expiry: 0; still-suppressed mobs: 0
+PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
+PASS targeting suppression was lifted on every mob
+PASS the manager no longer tracks the expired mobs
+flight after the cinematic: 99 samples, path 49.46 blocks, mean 0.500 b/t, stalled ticks 0
+PASS the summoned dragon never stalls (0 ticks)
+PASS the summoned dragon genuinely flies off under the normal AI (49.46 blocks)
+PASS the arrival flourish has ended and normal AI has the entity
+killing the dragon to test that the gate reopens
+PASS dragon is gone
+PASS the manager pruned the dead dragon (0)
+PASS once the dragon is dead the player may summon again
+PASS the reopened gate really did start a fresh cinematic
+PASS the ownership refusal really was exercised
+---- interruption test ----
+PASS a cinematic is running to interrupt
+PASS its dragon is pre-spawned and still hidden
+summoner killed at scenario tick 194 mid-cinematic
+PASS the interrupted cinematic was abandoned (0 still pending)
+PASS the never-revealed dragon was discarded, not left hidden in the world
+PASS no leftover dragon after the interruption (0)
+PASS the observer was told the sequence ended, so their camera is restored
+SummonEnd on interruption: reason=INTERRUPTED
+PASS the interruption is reported as INTERRUPTED, not COMPLETED
+PASS no fear was applied by a sequence that never reached its reveal (0)
+---- teardown ----
+PASS synthetic players removed
+harness registered
+poolSize=65 loadedTotal=65 files=[rasengan:awakening]
+configured resource=rasengan:awakening (from config value 'rasengan:awakening')
+PASS configured resource is among the loaded files
+PASS speakable line count is exactly 65, got 65
+4000 picks yielded 65 distinct lines
+PASS every line in the pool is reachable by pick() (65/65)
+PASS no line uses legacy section codes
+PASS an unknown configured resource still speaks rather than falling silent
+harness registered
+harness registered
+poolSize=3 loadedTotal=5 files=[audit:extra, rasengan:awakening]
+configured resource=rasengan:awakening (from config value 'rasengan:awakening')
+PASS configured resource is among the loaded files
+PASS speakable line count is exactly 3, got 3
+4000 picks yielded 3 distinct lines
+PASS every line in the pool is reachable by pick() (3/3)
+PASS no line uses legacy section codes
+PASS an unknown configured resource still speaks rather than falling silent
+note: 2 line(s) are loaded from other files and correctly not spoken
+PASS an extra file that lines_resource does not point at is never spoken
+===== END REPORT: 123 pass, 0 fail =====

@@ -80,8 +80,15 @@ public final class RasenganClient {
                 case RasenganPayloads.CastEnd end -> ClientCastTracker.onCastEnd(end);
                 case dev.rasengan.network.RasenganSummonPayloads.SummonPowerSync sync ->
                         ClientSummonPowerState.accept(sync);
-                case dev.rasengan.network.RasenganSummonPayloads.SummonStart start ->
-                        SummonCinematic.onSummonStart(start);
+                case dev.rasengan.network.RasenganSummonPayloads.SummonStart start -> {
+                    SummonCinematic.onSummonStart(start);
+                    // Warm the dragon's model and texture now, while the smoke is still building.
+                    // Left to itself, GeckoLib loads a 183-cube geometry and a 1024x1024 texture on
+                    // the first frame the dragon is drawn - which is the reveal frame.
+                    DragonAssetWarmup.prewarm();
+                }
+                case dev.rasengan.network.RasenganSummonPayloads.SummonEnd end ->
+                        SummonCinematic.onSummonEnd(end);
                 default -> {
                     // Unknown payload: ignore rather than throw, so a version mismatch cannot
                     // hard-crash the client.
@@ -93,6 +100,10 @@ public final class RasenganClient {
     private static void registerGuiLayers(RegisterGuiLayersEvent event) {
         // Above the hotbar so the bar is never drawn underneath vanilla HUD elements.
         event.registerAbove(VanillaGuiLayers.HOTBAR, Rasengan.id("power_bar"), PowerBarHud.INSTANCE);
+        // The reveal vignette. Above the hotbar as well, so it darkens the screen edges over the
+        // whole HUD rather than being painted under it.
+        event.registerAbove(VanillaGuiLayers.HOTBAR, Rasengan.id("summon_vignette"),
+                SummonVignette.INSTANCE);
     }
 
     /**
@@ -122,6 +133,18 @@ public final class RasenganClient {
                 sprites -> new EnergyParticle.Provider(sprites, EnergyParticle.Style.WISP));
         event.registerSpriteSet(RasenganParticles.BURST.get(),
                 sprites -> new EnergyParticle.Provider(sprites, EnergyParticle.Style.BURST));
+
+        // Summoning smoke. Alpha-blended, unlike everything above.
+        event.registerSpriteSet(RasenganParticles.SMOKE_BILLOW.get(),
+                sprites -> new SmokeParticle.Provider(sprites, SmokeParticle.Style.BILLOW));
+        event.registerSpriteSet(RasenganParticles.SMOKE_WISP.get(),
+                sprites -> new SmokeParticle.Provider(sprites, SmokeParticle.Style.WISP));
+        event.registerSpriteSet(RasenganParticles.GROUND_FOG.get(),
+                sprites -> new SmokeParticle.Provider(sprites, SmokeParticle.Style.GROUND_FOG));
+        event.registerSpriteSet(RasenganParticles.DUST_MOTE.get(),
+                sprites -> new SmokeParticle.Provider(sprites, SmokeParticle.Style.MOTE));
+        event.registerSpriteSet(RasenganParticles.FEAR.get(),
+                sprites -> new SmokeParticle.Provider(sprites, SmokeParticle.Style.FEAR));
     }
 
     private static void onClientTick(ClientTickEvent.Post event) {
@@ -153,12 +176,18 @@ public final class RasenganClient {
         // must not leave a tilt behind on the next world join.
         SummonCinematic.clear();
         RasenganRenderer.clearCaches();
+        DragonAssetWarmup.reset();
     }
 
     private static void onLevelUnload(LevelEvent.Unload event) {
         if (event.getLevel().isClientSide()) {
             ClientCastTracker.clear();
             RasenganRenderer.clearCaches();
+            // Drops the cinematic records and the smoke registry. A dimension change routes through
+            // here, and without it the old level's sequence would keep running against the new
+            // level's game time - which jumps arbitrarily and could put the camera anywhere in its
+            // window. That is a genuine stuck-camera path, not a theoretical one.
+            SummonCinematic.clear();
         }
     }
 }
