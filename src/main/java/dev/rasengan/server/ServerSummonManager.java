@@ -383,6 +383,11 @@ public final class ServerSummonManager {
         return PENDING.size();
     }
 
+    /** True while this player's cinematic is running. */
+    public static boolean isPending(ServerPlayer player) {
+        return PENDING.containsKey(player.getUUID());
+    }
+
     private static void broadcastNear(ServerLevel level, Vec3 at,
                                       net.minecraft.network.protocol.common.custom.CustomPacketPayload payload) {
         PacketDistributor.sendToPlayersNear(level, null, at.x, at.y, at.z,

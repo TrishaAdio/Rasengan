@@ -46,6 +46,10 @@ emit() {
   echo "summonaudit codec"
   sleep 2
 
+  echo "say MARK_COMMAND"
+  echo "summonaudit command"
+  sleep 3
+
   echo "say MARK_RUN"
   echo "summonaudit run"
   # 0..8 setup, 108 reveal/end, +115 teardown => ~340 ticks = 17s. Generous margin.
