@@ -1,0 +1,81 @@
+
+==============================================================================
+A. OPEN SKY
+==============================================================================
+  dragon [I;1435913584,76593954
+    ticks 900   path 461.3 blocks   span 84 x 35 x 93
+    speed  mean 0.5076  max 0.5643 blocks/tick (85% of the 0.6 attribute)
+    longest stalled run (<0.05 blocks ACTUAL movement) : 0 ticks   total stalled 0/900
+    travel efficiency (distance moved / velocity commanded) : 102%
+    excluded: 0 non-ticking samples (chunk unloaded), 4 harness recentres
+    heading change /tick  mean 0.54 deg  p99 4.00  max 4.00
+    vertical velocity step  p99 0.0285  max 0.1546 b/t   (max includes vertical collisions)   vy sign flips 13
+    altitude -43.8 .. -8.7
+    thrust spikes 16 -> one every 56.2 ticks
+
+==============================================================================
+B. DENSE TERRAIN (walls + pillars)
+==============================================================================
+  dragon [I;1109948200,18921087
+    ticks 1100   path 563.0 blocks   span 119 x 29 x 90
+    speed  mean 0.5069  max 0.5672 blocks/tick (84% of the 0.6 attribute)
+    longest stalled run (<0.05 blocks ACTUAL movement) : 0 ticks   total stalled 0/1100
+    travel efficiency (distance moved / velocity commanded) : 101%
+    excluded: 0 non-ticking samples (chunk unloaded), 6 harness recentres
+    heading change /tick  mean 0.41 deg  p99 4.00  max 12.00
+    vertical velocity step  p99 0.0198  max 0.1777 b/t   (max includes vertical collisions)   vy sign flips 15
+    altitude -52.0 .. -23.5
+    thrust spikes 17 -> one every 64.7 ticks
+
+==============================================================================
+C. THREE DRAGONS SIMULTANEOUSLY
+==============================================================================
+  dragon [I;1976580473,-1900133
+    ticks 900   path 470.1 blocks   span 141 x 30 x 71
+    speed  mean 0.5174  max 0.5662 blocks/tick (86% of the 0.6 attribute)
+    longest stalled run (<0.05 blocks ACTUAL movement) : 0 ticks   total stalled 0/900
+    travel efficiency (distance moved / velocity commanded) : 101%
+    excluded: 0 non-ticking samples (chunk unloaded), 2 harness recentres
+    heading change /tick  mean 1.07 deg  p99 12.00  max 12.00
+    vertical velocity step  p99 0.0254  max 0.1615 b/t   (max includes vertical collisions)   vy sign flips 12
+    altitude -48.5 .. -18.8
+    thrust spikes 23 -> one every 39.1 ticks
+  dragon [I;1871967972,73166042
+    ticks 900   path 462.1 blocks   span 51 x 20 x 86
+    speed  mean 0.5086  max 0.6755 blocks/tick (85% of the 0.6 attribute)
+    longest stalled run (<0.05 blocks ACTUAL movement) : 0 ticks   total stalled 0/900
+    travel efficiency (distance moved / velocity commanded) : 102%
+    excluded: 0 non-ticking samples (chunk unloaded), 5 harness recentres
+    heading change /tick  mean 0.25 deg  p99 4.00  max 4.00
+    vertical velocity step  p99 0.0174  max 0.1701 b/t   (max includes vertical collisions)   vy sign flips 14
+    altitude -48.5 .. -28.6
+    thrust spikes 14 -> one every 64.3 ticks
+  dragon [I;-827732835,30213839
+    ticks 900   path 464.2 blocks   span 88 x 33 x 89
+    speed  mean 0.5108  max 0.5673 blocks/tick (85% of the 0.6 attribute)
+    longest stalled run (<0.05 blocks ACTUAL movement) : 0 ticks   total stalled 0/900
+    travel efficiency (distance moved / velocity commanded) : 102%
+    excluded: 0 non-ticking samples (chunk unloaded), 4 harness recentres
+    heading change /tick  mean 0.33 deg  p99 4.00  max 4.00
+    vertical velocity step  p99 0.0206  max 0.1676 b/t   (max includes vertical collisions)   vy sign flips 11
+    altitude -48.5 .. -15.7
+    thrust spikes 17 -> one every 52.9 ticks
+
+==============================================================================
+VERDICTS
+==============================================================================
+  open sky   dragons=1  min_path=  461.3  mean_speed=0.508  frozen_max=  0t
+             yaw/tick p99=4.00 max=4.00deg   vertical step p99=0.0285 b/t   evading 0.0% of ticks
+             PASS sustained travel   PASS never stalled   PASS cruise arc <=4deg   PASS evasion <=12deg   PASS vertical eased
+  terrain    dragons=1  min_path=  563.0  mean_speed=0.507  frozen_max=  0t
+             yaw/tick p99=4.00 max=12.00deg   vertical step p99=0.0198 b/t   evading 0.3% of ticks
+             PASS sustained travel   PASS never stalled   PASS evasion duty <=25%   PASS evasion <=12deg   PASS vertical eased
+  multi      dragons=3  min_path=  462.1  mean_speed=0.512  frozen_max=  0t
+             yaw/tick p99=12.00 max=12.00deg   vertical step p99=0.0254 b/t   evading 1.6% of ticks
+             PASS sustained travel   PASS never stalled   PASS evasion duty <=25%   PASS evasion <=12deg   PASS vertical eased
+
+  independence - trajectories must differ, not just totals:
+    [I;1976580473,  span  141.0 x  29.6 x   70.6   altitude   -48.5..  -18.8   mean turn 1.07 deg/tick
+    [I;1871967972,  span   51.4 x  20.0 x   86.3   altitude   -48.5..  -28.6   mean turn 0.25 deg/tick
+    [I;-827732835,  span   87.7 x  32.8 x   89.3   altitude   -48.5..  -15.7   mean turn 0.33 deg/tick
+    distinct spans 3/3, distinct turn profiles 3/3 -> independent

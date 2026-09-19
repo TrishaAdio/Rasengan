@@ -7,6 +7,14 @@ procedural 3D animation.
 Everything that affects gameplay is decided by the server. Clients render, predict and
 interpolate, but they never decide whether the ability may be used.
 
+| key | ability | own POWER BAR | documented in |
+|---|---|---|---|
+| **`R`** | Rasengan | POWER BAR | this file |
+| **`G`** | Rasen Shuriken | POWER BAR (shared with Rasengan) | [Rasen Shuriken](#rasen-shuriken) |
+| **`L`** | Summoning Jutsu — brings in the boss dragon | POWER BAR — SUMMONING (independent) | [`SUMMONING.md`](SUMMONING.md) |
+
+The dragon itself is documented in [`DRAGON.md`](DRAGON.md). All three keys are remappable.
+
 ---
 
 ## 1. Loader, dependencies and exact versions
@@ -59,8 +67,8 @@ These are the things that changed most recently and that the code depends on:
 2. Install the **NeoForge 26.1.2.109** client profile from <https://neoforged.net>.
 3. Drop `rasengan-1.4.1.jar` into `.minecraft/mods/`.
 4. Launch the NeoForge 26.1.2 profile.
-5. Optionally rebind the ability key: **Options → Controls → Gameplay → "Cast Rasengan"**
-   (default **`R`**).
+5. Optionally rebind the ability keys under **Options → Controls → Gameplay**: "Cast Rasengan"
+   (default **`R`**), "Cast Rasen Shuriken" (default **`G`**), "Summoning Jutsu" (default **`L`**).
 
 ### Dedicated server
 

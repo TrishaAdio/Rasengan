@@ -10,3 +10,10 @@
 execute as @e[type=rasengan:rasengan_projectile] run function trace:log_proj with entity @s
 execute as @e[type=minecraft:iron_golem] run function trace:log_golem with entity @s
 execute as @e[type=rasengan:dragon] run function trace:log_dragon with entity @s
+
+# Test-harness aid, not behaviour under test: a dragon cruising at ~0.53 blocks/tick leaves any
+# forceloadable area (capped at 256 chunks) within about 20 seconds, and an entity in an unloaded
+# chunk simply stops ticking - its trace then shows position, velocity AND rotation frozen at
+# identical values, which reads exactly like a stuck mob but is not one. Recentring it keeps the
+# observation window inside loaded chunks. Triggers rarely; the analyser discards the jump.
+execute positioned 0.0 -30.0 0.0 as @e[type=rasengan:dragon,distance=90..] run tp @s 0 -30 0

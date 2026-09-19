@@ -37,6 +37,10 @@ public final class RasenganClient {
 
         // ---- Game bus: per-frame and per-tick work ----
         gameBus.addListener(RasenganRenderer::onSubmitGeometry);
+        // Cinematic camera. Registered here so a dedicated server never resolves these classes.
+        gameBus.addListener(SummonCinematic::onComputeCameraAngles);
+        gameBus.addListener(SummonCinematic::onComputeFov);
+        gameBus.addListener(SummonCinematic::onDetachedDistance);
         gameBus.addListener(RasenganClient::onClientTick);
         gameBus.addListener(RasenganClient::onLoggingOut);
         gameBus.addListener(RasenganClient::onLevelUnload);
@@ -74,6 +78,10 @@ public final class RasenganClient {
                 }
                 case RasenganPayloads.CastImpact impact -> ClientCastTracker.onCastImpact(impact);
                 case RasenganPayloads.CastEnd end -> ClientCastTracker.onCastEnd(end);
+                case dev.rasengan.network.RasenganSummonPayloads.SummonPowerSync sync ->
+                        ClientSummonPowerState.accept(sync);
+                case dev.rasengan.network.RasenganSummonPayloads.SummonStart start ->
+                        SummonCinematic.onSummonStart(start);
                 default -> {
                     // Unknown payload: ignore rather than throw, so a version mismatch cannot
                     // hard-crash the client.
@@ -128,7 +136,9 @@ public final class RasenganClient {
             return;
         }
         ClientPowerState.clientTick();
+        ClientSummonPowerState.clientTick();
         ClientCastTracker.clientTick(level);
+        SummonCinematic.clientTick(level);
     }
 
     // ------------------------------------------------------------------
@@ -138,6 +148,10 @@ public final class RasenganClient {
     private static void onLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
         ClientCastTracker.clear();
         ClientPowerState.reset();
+        ClientSummonPowerState.reset();
+        // Belt and braces on the camera: it already expires on its own, but disconnecting mid-summon
+        // must not leave a tilt behind on the next world join.
+        SummonCinematic.clear();
         RasenganRenderer.clearCaches();
     }
 

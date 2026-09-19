@@ -69,6 +69,17 @@ public final class RasenganConfig {
         public final ModConfigSpec.DoubleValue maxEffectDistance;
         public final ModConfigSpec.IntValue maxSimultaneousEffects;
 
+        // ---- Summoning Jutsu ----
+        public final ModConfigSpec.IntValue summonChargeDurationSeconds;
+        public final ModConfigSpec.IntValue summonCinematicTicks;
+        public final ModConfigSpec.IntValue summonRevealTick;
+        public final ModConfigSpec.BooleanValue summonCameraEffect;
+        public final ModConfigSpec.IntValue summonCameraStartTick;
+        public final ModConfigSpec.IntValue summonCameraEndTick;
+        public final ModConfigSpec.DoubleValue summonSoundVolume;
+        public final ModConfigSpec.BooleanValue summonAnnounceGlobally;
+        public final ModConfigSpec.ConfigValue<String> summonLinesResource;
+
         // ---- Dragon mob ----
         public final ModConfigSpec.DoubleValue dragonHealth;
         public final ModConfigSpec.DoubleValue dragonArmour;
@@ -333,6 +344,60 @@ public final class RasenganConfig {
                     .comment("Whether it targets players on sight. When false it only retaliates.")
                     .define("aggressive", true);
 
+            builder.pop().push("summoning");
+
+            builder.comment("Summoning Jutsu: the cinematic that brings in the boss dragon.",
+                    "Gated by its own independent POWER BAR - SUMMONING, separate from the cast bar,",
+                    "so charging one does not charge the other.");
+
+            summonChargeDurationSeconds = builder
+                    .comment("Real seconds for the summoning bar to charge from 0% to 100%.",
+                            "Default 300 seconds = 5 minutes: deliberately longer than the 150s cast",
+                            "bar, because this arrives with a boss.")
+                    .defineInRange("charge_duration_seconds", 300, 1, 86_400);
+
+            summonCinematicTicks = builder
+                    .comment("Total length of the summoning sequence in ticks (20 ticks = 1s).",
+                            "Default 100 = 5.0s.")
+                    .defineInRange("cinematic_ticks", 100, 20, 400);
+
+            summonRevealTick = builder
+                    .comment("Tick within the sequence at which the dragon appears and speaks.",
+                            "Default 70 = 3.5s, leaving 1.5s of settle afterwards.",
+                            "Must be less than cinematic_ticks.")
+                    .defineInRange("reveal_tick", 70, 5, 399);
+
+            summonCameraEffect = builder
+                    .comment("Enable the cinematic camera move for the summoner and nearby players.",
+                            "Set false to leave every camera alone - some players dislike any forced",
+                            "camera movement. Player input is never locked either way.")
+                    .define("camera_effect", true);
+
+            summonCameraStartTick = builder
+                    .comment("Tick the camera move begins.")
+                    .defineInRange("camera_start_tick", 45, 0, 399);
+
+            summonCameraEndTick = builder
+                    .comment("Tick the camera move ends and the view is fully released.",
+                            "Defaults give 45..95 = 50 ticks = 2.5 seconds.")
+                    .defineInRange("camera_end_tick", 95, 1, 400);
+
+            summonSoundVolume = builder
+                    .comment("Volume multiplier for the summoning buildup and reveal sounds.")
+                    .defineInRange("sound_volume", 1.0D, 0.0D, 2.0D);
+
+            summonAnnounceGlobally = builder
+                    .comment("If true the dragon's awakening line goes to every online player.",
+                            "If false only players within max_effect_distance hear it.")
+                    .define("announce_globally", true);
+
+            summonLinesResource = builder
+                    .comment("Which awakening-lines data file to read, as namespace:path under",
+                            "data/<namespace>/summon_lines/<path>.json. Server owners can edit the",
+                            "shipped file, override it from a datapack, or point this at their own.",
+                            "/reload picks up changes without a restart.")
+                    .define("lines_resource", "rasengan:awakening");
+
             builder.pop();
         }
     }
@@ -374,6 +439,16 @@ public final class RasenganConfig {
 
     public static int castDurationTicks() {
         return SERVER.castDurationTicks.get();
+    }
+
+    /** Summoning bar charge duration in ticks. Independent of the cast bar. */
+    public static int summonChargeDurationTicks() {
+        return SERVER.summonChargeDurationSeconds.get() * 20;
+    }
+
+    /** Reveal tick, clamped below the total so a misconfiguration cannot skip the reveal. */
+    public static int summonRevealTick() {
+        return Math.min(SERVER.summonRevealTick.get(), SERVER.summonCinematicTicks.get() - 1);
     }
 
     public static int castDurationTicks(dev.rasengan.AbilityType ability) {
