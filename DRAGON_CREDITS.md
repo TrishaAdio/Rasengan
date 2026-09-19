@@ -111,6 +111,20 @@ If you are GundunUkan, or already hold written permission, say so: drop the thre
 `.gitignore`, record the attribution required by the licence here, and this file's warning can come
 down.
 
+### Build-time guard
+
+`.gitignore` keeps these files out of **git**; it does nothing about **jars**. `processResources`
+copies whatever is in `src/main/resources`, so once `install_dragon_asset.sh` has run locally, every
+`./gradlew build` embeds all three files — this was observed happening even on a branch containing no
+dragon code at all, which is precisely how an unlicensed asset escapes unnoticed.
+
+So `build.gradle` adds a `verifyNoUnlicensedAssets` task wired into `publish`:
+
+- `./gradlew build` still works, because testing the mob requires the asset present
+- `./gradlew publish` **fails** while any of the three files exist, listing them
+
+Remove the files to publish, or resolve the licence and delete the guard.
+
 ### Note on `dist/`
 
 This repo commits a built jar to `dist/` because release-asset upload is blocked in the development
