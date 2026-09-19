@@ -2,6 +2,7 @@ package dev.rasengan.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import dev.rasengan.AbilityType;
 import dev.rasengan.Palette;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
@@ -69,11 +70,11 @@ public final class ShurikenRenderer {
     private static final float VIBRATION_AMPLITUDE = 0.055F;
 
     // ---- Formation beats, in ABSOLUTE ticks from cast start ----
-    // Deliberately absolute rather than fractions of the cast window. The blade snap has to land on
-    // the same tick as the 3.5 second transition in the audio, and a fraction would silently drift
-    // that sync the moment anyone changed the cast duration in config.
-    /** Blades snap out here: tick 70 = 3.5s at 20 ticks/s, locked to the audio transition. */
-    public static final float BLADE_SNAP_TICK = 70.0F;
+    /**
+     * Blades snap out here. Aliased from {@link AbilityType#BLADE_SNAP_TICK}, which is the single
+     * common definition shared with the server's in-flight spin clock and the screech pitch ramp.
+     */
+    public static final float BLADE_SNAP_TICK = AbilityType.BLADE_SNAP_TICK;
     private static final float BEAT_CORE_END_TICK = 14.0F;
     private static final float BEAT_SHELL_END_TICK = BLADE_SNAP_TICK;
     private static final float BEAT_BLADES_END_TICK = BLADE_SNAP_TICK + 8.0F;
@@ -268,8 +269,7 @@ public final class ShurikenRenderer {
                                   float intensity, long seed, int segments) {
 
         // Each blade flexes on its own phase, so the assembly feels alive rather than a rigid cross.
-        float flexPhase = bladeIndex * 1.937F + (seed % 500L) * 0.002F;
-        float flex = 0.030F * (float) Math.sin(spinTime * 0.42F + flexPhase);
+        float flexPhase = bladeFlexPhase(bladeIndex, seed);
 
         float length = BLADE_LENGTH * bladeScale;
 
@@ -281,9 +281,9 @@ public final class ShurikenRenderer {
                 float f0 = s / (float) segments;
                 float f1 = (s + 1) / (float) segments;
 
-                bladePoint(f0, baseAngle, length, flex, lateral, twistPhase,
+                bladePoint(f0, baseAngle, length, lateral, twistPhase,
                            spinTime, bladeIndex, seed, P0);
-                bladePoint(f1, baseAngle, length, flex, lateral, twistPhase,
+                bladePoint(f1, baseAngle, length, lateral, twistPhase,
                            spinTime, bladeIndex, seed, P1);
 
                 TANGENT.set(P1).sub(P0);
@@ -310,27 +310,58 @@ public final class ShurikenRenderer {
         }
     }
 
+    /** Per-blade phase, so no two blades flex or twist in step. */
+    private static float bladeFlexPhase(int bladeIndex, long seed) {
+        return bladeIndex * 1.937F + (seed % 500L) * 0.002F;
+    }
+
+    /** Whole-blade flex, applied proportionally along the blade's length. */
+    private static float bladeFlex(float spinTime, int bladeIndex, long seed) {
+        return 0.030F * (float) Math.sin(spinTime * 0.42F + bladeFlexPhase(bladeIndex, seed));
+    }
+
+    /** Micro-vibration: scaled by {@code f*f} so the root is rock solid and only the tip trembles. */
+    private static float bladeVibration(float spinTime, float f, int bladeIndex, long seed) {
+        return (OrbitMath.noise(bladeIndex * 7.3F, f * 11.0F, bladeIndex * 3.1F,
+                spinTime * 3.4F, (seed % 900L) * 0.001F) - 0.5F)
+                * VIBRATION_AMPLITUDE * f * f;
+    }
+
+    /**
+     * Total angular offset from a blade's rigid base angle to the point at fraction {@code f}:
+     * the swept trailing edge, the whole-blade flex, and the tip vibration.
+     *
+     * <h2>Why this is factored out</h2>
+     * The blade geometry and the trailing wisps must agree on where the tip actually is. They did
+     * not: {@code tipAt} used only the rigid base angle plus the {@code -0.30} sweep, omitting the
+     * flex and the vibration that {@code bladePoint} applies. The wisp therefore traced the arc of
+     * an idealised rigid tip while the drawn tip trembled away from it - by up to 0.085 rad, which
+     * at the 0.79 block tip radius is a 0.067 block gap, about 2.6x the wisp ribbon's own half-width.
+     * Sharing one function makes the wisp trace the real swept path, which is what the effect is
+     * documented to do, and makes the two impossible to drift apart again.
+     *
+     * @param f 0 at the shell surface, 1 at the tip
+     */
+    private static float bladeAngularOffset(float spinTime, float f, int bladeIndex, long seed) {
+        // Swept trailing edge, so each point rakes backwards like a shuriken rather than sticking
+        // out as a straight spoke.
+        float sweep = -0.30F * f * f;
+        return sweep + bladeFlex(spinTime, bladeIndex, seed) * f
+                + bladeVibration(spinTime, f, bladeIndex, seed);
+    }
+
     /**
      * A point along a blade.
      *
      * @param f       0 at the shell surface, 1 at the tip
      * @param lateral which stacked ribbon, centred on 0
      */
-    private static void bladePoint(float f, float baseAngle, float length, float flex,
+    private static void bladePoint(float f, float baseAngle, float length,
                                    float lateral, float twistPhase, float spinTime,
                                    int bladeIndex, long seed, Vector3f out) {
         float radius = SHELL_RADIUS * 0.85F + f * length;
 
-        // Swept trailing edge, so each point rakes backwards like a shuriken rather than sticking
-        // out as a straight spoke.
-        float sweep = -0.30F * f * f;
-
-        // Micro-vibration: scaled by f*f so the root is rock solid and only the tip trembles.
-        float vib = (OrbitMath.noise(bladeIndex * 7.3F, f * 11.0F, bladeIndex * 3.1F,
-                spinTime * 3.4F, (seed % 900L) * 0.001F) - 0.5F)
-                * VIBRATION_AMPLITUDE * f * f;
-
-        float angle = baseAngle + sweep + flex * f + vib;
+        float angle = baseAngle + bladeAngularOffset(spinTime, f, bladeIndex, seed);
 
         // Thickness offset along the spin axis, twisting along the blade and converging at the tip.
         float twist = twistPhase + f * 2.6F;
@@ -398,11 +429,17 @@ public final class ShurikenRenderer {
         }
     }
 
-    /** Blade tip position at an arbitrary past time, used to trace wisps. */
+    /**
+     * Blade tip position at an arbitrary past time, used to trace wisps.
+     *
+     * <p>Uses the same {@link #bladeAngularOffset} at {@code f = 1} that the blade geometry itself
+     * uses, evaluated at the historical time {@code t}, so the traced streak lands exactly on where
+     * the tip really was - sweep, flex and vibration included.
+     */
     private static void tipAt(float t, int bladeIndex, float length, long seed, Vector3f out) {
         float angle = spinAngle(t, SPINUP_TICKS)
                 + bladeIndex * (float) (Math.TAU / BLADE_COUNT)
-                - 0.30F; // matches the swept trailing edge at f = 1
+                + bladeAngularOffset(t, 1.0F, bladeIndex, seed);
         float radius = SHELL_RADIUS * 0.85F + length;
         float c = (float) Math.cos(angle) * radius;
         float s = (float) Math.sin(angle) * radius;

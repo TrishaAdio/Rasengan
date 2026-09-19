@@ -22,13 +22,17 @@ import net.neoforged.neoforge.client.gui.GuiLayer;
  * <h2>Glow</h2>
  * The bar has its own glow, entirely independent of the Rasengan sphere and aura - it runs even
  * when no cast is happening, because its job is to telegraph readiness. It is composed of two
- * continuous effects, both pure functions of time so neither can flicker or step:
+ * continuous effects:
  * <ul>
  *   <li>a <b>breathing</b> brightness that rises and falls across the whole filled portion;</li>
  *   <li>a <b>travelling shimmer</b>, a soft highlight that sweeps repeatedly along the fill.</li>
  * </ul>
- * Both scale with the fill fraction <em>squared</em>, so the bar is nearly calm when empty and
- * unmistakably alive as it approaches 100%. This is client-side cosmetic only and is never synced.
+ * Both quicken and brighten as the bar fills, so it is nearly calm when empty and unmistakably alive
+ * as it approaches 100%. Because their <em>rates</em> change with the fill, their phases are
+ * integrated tick by tick in {@link ClientPowerState} rather than computed as {@code rate * time} -
+ * the latter is not the integral of a varying rate and made the glow strobe in proportion to the
+ * world's age. The amplitudes are still plain functions of the fill fraction and are computed here.
+ * This is client-side cosmetic only and is never synced.
  */
 public final class PowerBarHud implements GuiLayer {
 
@@ -68,10 +72,6 @@ public final class PowerBarHud implements GuiLayer {
         int percent = ClientPowerState.percent(partialTick);
         PowerState state = ClientPowerState.state();
 
-        // Continuous tick-based clock for the animations. Including the partial tick is what
-        // makes the glow move every frame instead of 20 times a second.
-        float time = (minecraft.level != null ? minecraft.level.getGameTime() : 0L) + partialTick;
-
         Font font = minecraft.font;
         int screenWidth = graphics.guiWidth();
         int screenHeight = graphics.guiHeight();
@@ -108,7 +108,7 @@ public final class PowerBarHud implements GuiLayer {
         }
 
         // ---- The bar's own glow ----
-        renderGlow(graphics, barX, barY, wholePixels, fraction, time, state);
+        renderGlow(graphics, barX, barY, wholePixels, fraction, partialTick, state);
 
         // ---- Leading-edge highlight ----
         if (state == PowerState.CHARGING && wholePixels > 1) {
@@ -135,26 +135,27 @@ public final class PowerBarHud implements GuiLayer {
      * rectangle could only ever pulse uniformly.
      */
     private void renderGlow(GuiGraphicsExtractor graphics, int barX, int barY, int filledWidth,
-                            float fraction, float time, PowerState state) {
+                            float fraction, float partialTick, PowerState state) {
         if (filledWidth <= 0) {
             return;
         }
 
         // Readiness curve: squared so the effect stays subtle for most of the charge and then
-        // ramps hard over the last stretch.
+        // ramps hard over the last stretch. Used for AMPLITUDES only - the rates it also governs
+        // are integrated in ClientPowerState, because multiplying a ramping rate by elapsed time
+        // is not the integral of that rate.
         float readiness = Math.clamp(fraction, 0.0F, 1.0F);
         float ramp = readiness * readiness;
 
-        // Breathing brightness. Period is roughly 35 ticks at the base rate, quickening as the
-        // bar fills so a nearly-ready bar feels more urgent.
-        float breatheRate = 0.18F + 0.10F * ramp;
-        float breathe = 0.5F + 0.5F * (float) Math.sin(time * breatheRate);
+        // Breathing brightness. Period is roughly 35 ticks at the base rate, quickening as the bar
+        // fills so a nearly-ready bar feels more urgent. The phase is accumulated, not recomputed
+        // from the world clock - see ClientPowerState.breathePhase.
+        float breathe = 0.5F + 0.5F * (float) Math.sin(ClientPowerState.breathePhase(partialTick));
 
         float baseAlpha = (0.05F + 0.26F * ramp) * (0.55F + 0.45F * breathe);
 
         // Travelling shimmer head, looping along the filled portion.
-        float sweepRate = 0.016F + 0.020F * ramp;
-        float head = positiveFraction(time * sweepRate);
+        float head = positiveFraction(ClientPowerState.shimmerPhase(partialTick));
 
         // A tighter, brighter shimmer as the bar fills.
         float shimmerWidth = 4.0F + 2.5F * ramp;
