@@ -53,5 +53,19 @@ public final class RasenganSounds {
             REGISTRY.register("rasengan_spin",
                     id -> SoundEvent.createVariableRangeEvent(id));
 
+    /**
+     * Summoning buildup: a 3.5 second rising drone that cuts to silence exactly on the reveal beat,
+     * so the impact lands in the gap. Synthesised by {@code tools/generate_summon_sounds.py} - fully
+     * original, so unlike the imported ability audio there is no licence question attached to it.
+     */
+    public static final DeferredHolder<SoundEvent, SoundEvent> SUMMON_BUILDUP =
+            REGISTRY.register("summon_buildup",
+                    id -> SoundEvent.createVariableRangeEvent(id));
+
+    /** The arrival impact: a 1.6 second low thump with a descending sweep and debris tail. */
+    public static final DeferredHolder<SoundEvent, SoundEvent> SUMMON_REVEAL =
+            REGISTRY.register("summon_reveal",
+                    id -> SoundEvent.createVariableRangeEvent(id));
+
     private RasenganSounds() {}
 }

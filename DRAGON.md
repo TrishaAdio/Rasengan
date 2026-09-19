@@ -1,7 +1,8 @@
 # Dragon mob
 
-A summon-only, boss-tier flying dragon. **Standalone hostile mob only** — see
-[Future work](#future-work) for what is deliberately absent.
+A boss-tier flying dragon. Two ways in: `/spawn dragon` for gamemasters, or the player-facing
+**Summoning Jutsu** documented in [`SUMMONING.md`](SUMMONING.md). Still **no mount, ride, taming or
+ownership** — see [Future work](#future-work) for what is deliberately absent.
 
 The model is third-party work: **"Demonic Wingwalker"** by **CsDani50**
 ([source](https://sketchfab.com/3d-models/demonic-wingwalker-f807bf53631e403094920b05dbebde17)),
@@ -124,17 +125,25 @@ viewer sees the same animation for the same dragon.
 
 Fire-immune by design (it breathes fire); vulnerable to everything else.
 
-## Commands
+## Getting one
 
+- **Summoning Jutsu** — press **L**. The player-facing route: its own POWER BAR, a 5.0 s cinematic,
+  one dragon per player. Fully documented in [`SUMMONING.md`](SUMMONING.md).
 - `/spawn dragon` — tab-completes from this mod's mob list. Gated at `Commands.LEVEL_GAMEMASTERS`,
   matching the existing `/chargeit <player>` gate and vanilla `/summon`.
 - `/summon rasengan:dragon` — works independently; the shorthand does not wrap or replace it.
+
+A summoned dragon is the same entity as a `/spawn`ed one, with two differences: it holds position for
+a 30-tick arrival flourish before the normal flight AI takes over, and it records its summoner's UUID
+so that player cannot summon a second one while it lives. The UUID confers nothing else.
 
 ## Config
 
 All under `[dragon]` in the server config: health, armour, knockback resistance, movement/flight
 speed, attack damage, follow range, `can_fly`, `boss_bar`, `aggressive`, and the full breath set
 (damage, range, cone angle, burn duration, cooldown, duration).
+
+The summon has its own `[summoning]` section — see [`SUMMONING.md`](SUMMONING.md#5-config).
 
 ## Verified on a dedicated server
 
@@ -200,12 +209,13 @@ nothing either way.
 
 ## Future work — deliberately not built
 
-Phase two, explicitly out of scope for this build:
+A summoning method **has since been built** — [`SUMMONING.md`](SUMMONING.md). What remains out of
+scope:
 
-- a summoning method (scroll item, hand-seal gesture, or player-bound command)
 - mount and ride controls
-- ownership, so it only obeys and carries its summoner
+- ownership in the behavioural sense, so it obeys and carries its summoner
 - dismissal/despawn tied to the summon rather than death only
 
-None of taming, saddling, player ownership or any jutsu/scroll/circle mechanic exists in this code.
-The dragon is a plain hostile mob that wanders, fights and dies.
+None of taming, saddling or riding exists in this code. The dragon is a hostile mob that wanders,
+fights and dies; it is exactly as hostile to whoever summoned it as to anyone else. The summoner's
+UUID is recorded for the one-dragon-per-player limit and is read for nothing else.

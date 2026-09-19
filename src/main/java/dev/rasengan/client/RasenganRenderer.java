@@ -107,6 +107,10 @@ public final class RasenganRenderer {
         // whether any cast record is still alive.
         renderImpacts(poseStack, collector, cameraPos, gameTime, partialTick, maxDistance);
 
+        // Summoning seals are likewise world-space and owner-independent: the circle stays where it
+        // was drawn even if the summoner walks away mid-sequence.
+        SummonCinematic.submit(poseStack, collector, cameraPos, gameTime, partialTick, maxDistance);
+
         if (ClientCastTracker.isEmpty()) {
             return;
         }

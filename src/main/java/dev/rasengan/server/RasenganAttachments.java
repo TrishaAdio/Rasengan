@@ -25,5 +25,19 @@ public final class RasenganAttachments {
                     .copyOnDeath()
                     .build());
 
+    /**
+     * The summoning bar, deliberately a second independent attachment of the same type.
+     *
+     * <p>Reusing {@link PowerData} rather than inventing a parallel state class means the two bars
+     * cannot drift apart in behaviour - they charge, reset and serialise through identical code - while
+     * remaining completely separate instances. Charging one has no effect on the other.
+     */
+    public static final Supplier<AttachmentType<PowerData>> SUMMON_POWER = REGISTRY.register(
+            "summon_power",
+            id -> AttachmentType.builder(PowerData::new)
+                    .serialize(PowerData.CODEC)
+                    .copyOnDeath()
+                    .build());
+
     private RasenganAttachments() {}
 }

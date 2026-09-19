@@ -7,5 +7,7 @@
   "rasengan.hud.ready": "READY",
   "rasengan.hud.casting": "CASTING",
   "rasengan.hud.reset": "RESET",
-  "key.rasengan.activate_shuriken": "Cast Rasen Shuriken"
+  "key.rasengan.activate_shuriken": "Cast Rasen Shuriken",
+  "key.rasengan.summon": "Summoning Jutsu",
+  "entity.rasengan.dragon": "Demonic Wingwalker"
 }
