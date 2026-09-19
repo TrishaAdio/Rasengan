@@ -42,6 +42,7 @@ public final class Rasengan {
         RasenganSounds.REGISTRY.register(modBus);
 
         modBus.addListener(Rasengan::registerPayloads);
+        modBus.addListener(Rasengan::registerEntityAttributes);
 
         // Server-authoritative gameplay listeners (game bus, both physical sides - they
         // self-guard on level.isClientSide so a LAN host's integrated server behaves like a
@@ -66,6 +67,19 @@ public final class Rasengan {
      */
     private static void registerCommands(RegisterCommandsEvent event) {
         ChargeCommand.register(event.getDispatcher());
+        dev.rasengan.server.SpawnCommand.register(event.getDispatcher());
+    }
+
+    /**
+     * Supplies base attributes for the mod's living entities.
+     *
+     * <p>Required: a {@code LivingEntity} type with no registered attribute supplier crashes the
+     * moment it is spawned.
+     */
+    private static void registerEntityAttributes(
+            net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent event) {
+        event.put(RasenganEntities.DRAGON.get(),
+                dev.rasengan.server.DragonEntity.createAttributes().build());
     }
 
     /**

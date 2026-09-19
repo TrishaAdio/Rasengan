@@ -98,6 +98,9 @@ public final class RasenganClient {
      */
     private static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(RasenganEntities.PROJECTILE.get(), NoopRenderer::new);
+        // The dragon, unlike the projectile, is a real model: GeckoLib draws it from the converted
+        // Bedrock geometry and animation files.
+        event.registerEntityRenderer(RasenganEntities.DRAGON.get(), DragonRenderer::new);
     }
 
     private static void registerParticleProviders(RegisterParticleProvidersEvent event) {
