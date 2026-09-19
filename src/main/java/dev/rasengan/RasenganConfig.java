@@ -69,25 +69,6 @@ public final class RasenganConfig {
         public final ModConfigSpec.DoubleValue maxEffectDistance;
         public final ModConfigSpec.IntValue maxSimultaneousEffects;
 
-        // ---- Dragon mob ----
-        public final ModConfigSpec.DoubleValue dragonHealth;
-        public final ModConfigSpec.DoubleValue dragonArmour;
-        public final ModConfigSpec.DoubleValue dragonKnockbackResistance;
-        public final ModConfigSpec.DoubleValue dragonMovementSpeed;
-        public final ModConfigSpec.DoubleValue dragonFlyingSpeed;
-        public final ModConfigSpec.DoubleValue dragonAttackDamage;
-        public final ModConfigSpec.DoubleValue dragonFollowRange;
-        public final ModConfigSpec.BooleanValue dragonCanFly;
-        public final ModConfigSpec.BooleanValue dragonBossBar;
-        public final ModConfigSpec.BooleanValue dragonBreathEnabled;
-        public final ModConfigSpec.DoubleValue dragonBreathDamage;
-        public final ModConfigSpec.DoubleValue dragonBreathRange;
-        public final ModConfigSpec.DoubleValue dragonBreathConeDegrees;
-        public final ModConfigSpec.IntValue dragonBreathFireSeconds;
-        public final ModConfigSpec.IntValue dragonBreathCooldownTicks;
-        public final ModConfigSpec.IntValue dragonBreathDurationTicks;
-        public final ModConfigSpec.BooleanValue dragonAggressive;
-
         private Server(ModConfigSpec.Builder builder) {
             builder.comment(
                     "Rasengan - server-authoritative configuration.",
@@ -257,81 +238,6 @@ public final class RasenganConfig {
                     .comment("Hard cap on concurrently rendered Rasengan effects per client.",
                             "Casts beyond this cap are skipped visually; gameplay is unaffected.")
                     .defineInRange("max_simultaneous_effects", 8, 1, 64);
-
-            builder.pop().push("dragon");
-
-            builder.comment("The summon-only boss dragon. It does not spawn naturally.",
-                    "This is a standalone hostile mob: it is not tamed, ridden, owned or bound to a",
-                    "caster, and it takes and deals damage like any other boss.");
-
-            dragonHealth = builder
-                    .comment("Maximum health. Boss-tier: 300 = 150 hearts, roughly 1.5x the Ender Dragon.")
-                    .defineInRange("health", 300.0D, 1.0D, 10_000.0D);
-
-            dragonArmour = builder
-                    .comment("Armour points. Reduces incoming damage without making it immune.")
-                    .defineInRange("armour", 12.0D, 0.0D, 30.0D);
-
-            dragonKnockbackResistance = builder
-                    .comment("Knockback resistance, 0..1. High but not 1.0, so it still reacts to hits.")
-                    .defineInRange("knockback_resistance", 0.8D, 0.0D, 1.0D);
-
-            dragonMovementSpeed = builder
-                    .comment("Ground movement speed attribute.")
-                    .defineInRange("movement_speed", 0.25D, 0.0D, 2.0D);
-
-            dragonFlyingSpeed = builder
-                    .comment("Flight speed attribute, used while airborne.")
-                    .defineInRange("flying_speed", 0.6D, 0.0D, 4.0D);
-
-            dragonAttackDamage = builder
-                    .comment("Melee bite damage in health points (2 = 1 heart).")
-                    .defineInRange("attack_damage", 18.0D, 0.0D, 1_000.0D);
-
-            dragonFollowRange = builder
-                    .comment("How far away it will notice and pursue a target, in blocks.")
-                    .defineInRange("follow_range", 48.0D, 1.0D, 256.0D);
-
-            dragonCanFly = builder
-                    .comment("Whether it flies. When false it still walks and fights, using ground pathing.")
-                    .define("can_fly", true);
-
-            dragonBossBar = builder
-                    .comment("Show a boss bar to nearby players while it is alive.")
-                    .define("boss_bar", true);
-
-            dragonBreathEnabled = builder
-                    .comment("Enable the ranged fire-breath attack in addition to the melee bite.")
-                    .define("breath_enabled", true);
-
-            dragonBreathDamage = builder
-                    .comment("Damage per damaging tick of the breath, to each entity caught in the cone.")
-                    .defineInRange("breath_damage", 4.0D, 0.0D, 1_000.0D);
-
-            dragonBreathRange = builder
-                    .comment("Reach of the breath cone, in blocks.")
-                    .defineInRange("breath_range", 16.0D, 1.0D, 64.0D);
-
-            dragonBreathConeDegrees = builder
-                    .comment("Half-angle of the breath cone, in degrees. 25 gives a 50 degree spread.")
-                    .defineInRange("breath_cone_degrees", 25.0D, 1.0D, 90.0D);
-
-            dragonBreathFireSeconds = builder
-                    .comment("Seconds of burning applied to entities caught in the breath.")
-                    .defineInRange("breath_fire_seconds", 5, 0, 60);
-
-            dragonBreathCooldownTicks = builder
-                    .comment("Ticks between breath attacks (20 ticks = 1 second).")
-                    .defineInRange("breath_cooldown_ticks", 140, 20, 6_000);
-
-            dragonBreathDurationTicks = builder
-                    .comment("How long one breath lasts, in ticks. Matched to the 2.0s firebreath",
-                            "animation by default (40 ticks).")
-                    .defineInRange("breath_duration_ticks", 40, 5, 200);
-
-            dragonAggressive = builder
-                    .comment("Whether it targets players on sight. When false it only retaliates.")
-                    .define("aggressive", true);
 
             builder.pop();
         }
