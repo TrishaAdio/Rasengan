@@ -39,6 +39,13 @@ recoverable; deleting a boss mid-fight is not.
 The real limiter is therefore the dragon's *life*, not the bar. Killing it reopens the gate
 immediately (`pruneDeadDragons` runs every server tick).
 
+> **Known limitation: the limit does not survive a server restart.** `summonerUuid` is not written to
+> the dragon's save data, and the manager's tracking map is in-memory and cleared on shutdown. A player
+> whose dragon is still alive across a restart can therefore summon a second one. This is outside the
+> verified set — every assertion below runs inside one server lifetime — and is recorded in
+> [`HANDOFF.md`](HANDOFF.md#7-outstanding-work) with the fix it needs. Do not read "one dragon per
+> player" as holding across restarts until that lands.
+
 ### The summoner is recorded, but owns nothing
 
 `DragonEntity.summonerUuid` exists solely for the one-per-player check. It grants no control, no
@@ -229,6 +236,7 @@ as the existing ability keys and remappable in Controls like any other.
 | Sequence cleanup | at summon + 100 the cinematic is gone and the bar is back to `CHARGING` |
 | Hand-off to normal flight AI | 48.67 blocks over 99 ticks, 0.492 b/t mean, **0 stalled ticks**, `isEntering()` false |
 | Gate reopens after death | dragon pruned, `trySummon` succeeds again |
+| *(not covered)* | the one-per-player limit **across a server restart** — see the limitation noted in §1 |
 | `/reload` re-reads the lines | 64 → **65** with no restart |
 | Datapack override | 3 speakable / 5 loaded; the 2 unselected lines never spoken in 4000 draws |
 | Payload codecs round-trip | `SummonStart` 41 bytes exact; `SummonPowerSync` exact; `SummonActivate` 0 bytes |

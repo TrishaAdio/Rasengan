@@ -2,7 +2,7 @@
 
 A boss-tier flying dragon. Two ways in: `/spawn dragon` for gamemasters, or the player-facing
 **Summoning Jutsu** documented in [`SUMMONING.md`](SUMMONING.md). Still **no mount, ride, taming or
-ownership** — see [Future work](#future-work) for what is deliberately absent.
+ownership** — see [Future work](#future-work--deliberately-not-built) for what is deliberately absent.
 
 The model is third-party work: **"Demonic Wingwalker"** by **CsDani50**
 ([source](https://sketchfab.com/3d-models/demonic-wingwalker-f807bf53631e403094920b05dbebde17)),
