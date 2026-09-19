@@ -101,6 +101,15 @@ public final class SummonAudit {
             active = new Scenario(context.getSource().getServer());
             return 1;
         }));
+        root.then(Commands.literal("command").executes(context -> {
+            try {
+                auditChargeCommand(context.getSource().getServer());
+            } catch (Exception error) {
+                log("FAIL command audit threw " + error);
+                error.printStackTrace();
+            }
+            return 1;
+        }));
         root.then(Commands.literal("report").executes(context -> {
             dump();
             return 1;
@@ -220,7 +229,141 @@ public final class SummonAudit {
     }
 
     // ==================================================================
-    // C. The live scenario
+    // C. /chargeit summon, driven through the real Brigadier dispatcher
+    // ==================================================================
+
+    /**
+     * Exercises the real command text against the real dispatcher.
+     *
+     * <p>Entirely synchronous: every branch of the command depends on state that {@code trySummon}
+     * and the command itself set within a single tick, so nothing here needs to wait. That includes
+     * the mid-cinematic refusal - {@code trySummon} inserts the pending entry before it returns.
+     */
+    private static void auditChargeCommand(MinecraftServer server) throws Exception {
+        ServerLevel level = server.overworld();
+        ServerSummonManager.clearAll();
+        killDragons(level);
+
+        Recorder player = new Recorder(server, level, "AuditCommander");
+        player.snapTo(0.5D, -59.0D, 40.5D, 0.0F, 0.0F);
+        join(server, player);
+        try {
+            com.mojang.brigadier.CommandDispatcher<net.minecraft.commands.CommandSourceStack> dispatcher =
+                    server.getCommands().getDispatcher();
+            net.minecraft.commands.CommandSourceStack own = player.createCommandSourceStack();
+            PowerData summon = ServerSummonManager.data(player);
+            PowerData cast = player.getData(dev.rasengan.server.RasenganAttachments.POWER.get());
+
+            // ---- Creative gate ----
+            player.setGameMode(net.minecraft.world.level.GameType.SURVIVAL);
+            summon.setState(PowerState.CHARGING);
+            summon.setChargeTicks(0);
+            player.clear();
+            int result = run(dispatcher, own, "chargeit summon");
+            check(result == 0, "/chargeit summon is refused in Survival (returned " + result + ")");
+            check(summon.state() == PowerState.CHARGING,
+                    "the refused command left the summoning bar alone, got " + summon.state());
+            if (!player.chat.isEmpty()) {
+                log("survival refusal: " + player.chat.get(0).getString());
+            }
+
+            // ---- Creative, self form ----
+            player.setGameMode(net.minecraft.world.level.GameType.CREATIVE);
+            cast.setState(PowerState.CHARGING);
+            cast.setChargeTicks(5);
+            player.clear();
+            result = run(dispatcher, own, "chargeit summon");
+            check(result == 1, "/chargeit summon succeeds in Creative (returned " + result + ")");
+            check(summon.state() == PowerState.READY,
+                    "the summoning bar is READY, got " + summon.state());
+            check(summon.chargeTicks() == RasenganConfig.summonChargeDurationTicks(),
+                    "the summoning bar is filled to the configured duration ("
+                            + summon.chargeTicks() + "/"
+                            + RasenganConfig.summonChargeDurationTicks() + ")");
+            check(summon.cooldownTicks() == 0, "the summoning cooldown is cleared");
+            check(cast.state() == PowerState.CHARGING && cast.chargeTicks() == 5,
+                    "/chargeit summon did NOT touch the cast bar (state=" + cast.state()
+                            + " charge=" + cast.chargeTicks() + ")");
+            check(!player.mine(RasenganSummonPayloads.SummonPowerSync.class).isEmpty(),
+                    "the filled bar is pushed to the client immediately, not on the heartbeat");
+            if (!player.chat.isEmpty()) {
+                log("success text: " + player.chat.get(0).getString());
+            }
+
+            // ---- The reverse direction: plain /chargeit must not touch the summoning bar ----
+            summon.setState(PowerState.CHARGING);
+            summon.setChargeTicks(7);
+            result = run(dispatcher, own, "chargeit");
+            check(result == 1, "/chargeit still works (returned " + result + ")");
+            check(cast.state() == PowerState.READY, "the cast bar is READY, got " + cast.state());
+            check(summon.state() == PowerState.CHARGING && summon.chargeTicks() == 7,
+                    "/chargeit did NOT touch the summoning bar (state=" + summon.state()
+                            + " charge=" + summon.chargeTicks() + ")");
+
+            // ---- The charge is real: the summon it grants actually fires ----
+            run(dispatcher, own, "chargeit summon");
+            boolean summoned = ServerSummonManager.trySummon(player);
+            check(summoned, "a summon granted purely by /chargeit summon is accepted");
+            check(ServerSummonManager.isPending(player), "and it started a cinematic");
+
+            // ---- Mid-cinematic refusal ----
+            player.clear();
+            result = run(dispatcher, own, "chargeit summon");
+            check(result == 0,
+                    "/chargeit summon is refused mid-cinematic rather than cancelling it (returned "
+                            + result + ")");
+            check(ServerSummonManager.isPending(player),
+                    "the refusal left the running cinematic intact");
+            check(ServerSummonManager.data(player).state() == PowerState.CASTING,
+                    "the bar is still CASTING, got " + ServerSummonManager.data(player).state());
+            if (!player.chat.isEmpty()) {
+                log("mid-cinematic refusal: " + player.chat.get(0).getString());
+            }
+
+            // ---- Operator target form, from the console ----
+            ServerSummonManager.clearAll();
+            PowerData targetBar = ServerSummonManager.data(player);
+            targetBar.setState(PowerState.CHARGING);
+            targetBar.setChargeTicks(0);
+            result = run(dispatcher, server.createCommandSourceStack(),
+                    "chargeit summon AuditCommander");
+            check(result == 1, "/chargeit summon <player> works from the console (returned "
+                    + result + ")");
+            check(targetBar.state() == PowerState.READY,
+                    "the named player's summoning bar is READY, got " + targetBar.state());
+
+            // The Creative requirement follows the target, not the operator.
+            player.setGameMode(net.minecraft.world.level.GameType.SURVIVAL);
+            targetBar.setState(PowerState.CHARGING);
+            targetBar.setChargeTicks(0);
+            result = run(dispatcher, server.createCommandSourceStack(),
+                    "chargeit summon AuditCommander");
+            check(result == 0,
+                    "an operator cannot charge a Survival player's summoning bar (returned "
+                            + result + ")");
+            check(targetBar.state() == PowerState.CHARGING,
+                    "and that bar was left alone, got " + targetBar.state());
+        } finally {
+            ServerSummonManager.clearAll();
+            killDragons(level);
+            leave(server, player);
+        }
+    }
+
+    private static int run(com.mojang.brigadier.CommandDispatcher<net.minecraft.commands.CommandSourceStack> dispatcher,
+                           net.minecraft.commands.CommandSourceStack source, String command) {
+        try {
+            return dispatcher.execute(command, source);
+        } catch (com.mojang.brigadier.exceptions.CommandSyntaxException syntax) {
+            // A command that fails its own checks returns 0; one that fails to PARSE is a different
+            // and more serious problem, so it is reported rather than folded into "returned 0".
+            log("FAIL '" + command + "' did not parse: " + syntax.getMessage());
+            return -1;
+        }
+    }
+
+    // ==================================================================
+    // D. The live scenario
     // ==================================================================
 
     /** A real ServerPlayer whose outbound packets are recorded rather than sent. */
