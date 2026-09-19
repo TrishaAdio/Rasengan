@@ -1,4 +1,24 @@
 #!/usr/bin/env bash
+# =============================================================================================
+#  WARNING - ASSET LICENSING IS UNRESOLVED.  READ BEFORE RUNNING.
+# =============================================================================================
+#  Do NOT publish, release, or distribute a build with this asset embedded until licensing is
+#  confirmed directly with the rights holder, or the asset is replaced with an original/properly
+#  licensed model.
+#
+#  Evidence points to the creature design and model originating with GundunUkan / the Wyrmroost
+#  mod, whose assets are All Rights Reserved and may not be redistributed in modified form. A
+#  CC Attribution claim on a third-party Sketchfab re-upload does not cure this: a re-uploader
+#  cannot grant rights they do not hold. The converted GeckoLib files this script produces are a
+#  derivative work and are covered by the same restriction.
+#
+#  Running this script is fine for LOCAL development and testing. What is not fine is committing
+#  the output, or building a jar from it and shipping that jar. `./gradlew build` embeds all three
+#  files into build/libs/, so do not copy that jar into dist/ or upload it anywhere.
+#
+#  See DRAGON_CREDITS.md for the full evidence and the two resolution paths.
+# =============================================================================================
+#
 # Installs the dragon model, animations and texture into the resource tree.
 #
 # WHY THIS EXISTS: the source asset's licence is UNRESOLVED (see DRAGON_CREDITS.md). The three
@@ -62,5 +82,10 @@ echo
 echo "installed:"
 ls -la "$GEO_DIR/dragon.geo.json" "$ANIM_DIR/dragon.animation.json" "$TEX_DIR/dragon.png"
 echo
-echo "These files are gitignored on purpose. Do not commit them until the asset's licence is"
-echo "confirmed - see DRAGON_CREDITS.md."
+echo "=============================================================================="
+echo " These files are gitignored on purpose. LOCAL USE ONLY."
+echo " Do NOT commit them, and do NOT publish or distribute a jar built with them,"
+echo " until licensing is confirmed with the rights holder or the asset is replaced."
+echo " ./gradlew build WILL embed them into build/libs/ - do not copy that to dist/."
+echo " See DRAGON_CREDITS.md."
+echo "=============================================================================="

@@ -36,3 +36,7 @@ Thumbs.db
 src/main/resources/assets/rasengan/geo/dragon.geo.json
 src/main/resources/assets/rasengan/animations/dragon.animation.json
 src/main/resources/assets/rasengan/textures/entity/dragon.png
+
+# Python bytecode from the asset conversion tooling
+__pycache__/
+*.pyc
