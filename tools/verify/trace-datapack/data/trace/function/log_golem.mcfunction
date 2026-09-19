@@ -1,1 +1,1 @@
-$say TRACE_GOLEM pos=$(Pos) motion=$(Motion)
+$say TRACE_GOLEM health=$(Health) pos=$(Pos) motion=$(Motion) fire=$(Fire)

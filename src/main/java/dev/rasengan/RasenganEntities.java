@@ -1,5 +1,6 @@
 package dev.rasengan;
 
+import dev.rasengan.server.DragonEntity;
 import dev.rasengan.server.RasenganProjectile;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
@@ -23,6 +24,9 @@ public final class RasenganEntities {
     public static final ResourceKey<EntityType<?>> PROJECTILE_KEY =
             ResourceKey.create(Registries.ENTITY_TYPE, Rasengan.id("rasengan_projectile"));
 
+    public static final ResourceKey<EntityType<?>> DRAGON_KEY =
+            ResourceKey.create(Registries.ENTITY_TYPE, Rasengan.id("dragon"));
+
     /**
      * The thrown energy sphere.
      *
@@ -40,6 +44,30 @@ public final class RasenganEntities {
                     .clientTrackingRange(6)
                     .updateInterval(1)
                     .build(PROJECTILE_KEY));
+
+    /**
+     * The boss dragon.
+     *
+     * <h2>Hitbox</h2>
+     * Sized from the actual asset rather than a default mob box. The converted model measures
+     * 29.5 blocks across with its wings spread, 19.8 nose-to-tail and 4.8 tall, so the collision
+     * box is deliberately the <em>body</em>: 6.0 wide by 5.0 tall. The wings reach well outside it,
+     * exactly as the Ender Dragon's do - putting a 29-block-wide box on a flying mob would make it
+     * unable to path anywhere and let players hit it from absurd distances.
+     *
+     * <p>{@code MobCategory.MONSTER} with no spawn rules registered anywhere, which is what makes
+     * it summon-only. {@code fireImmune} is set on the class, not here, so it stays with the
+     * behaviour it describes.
+     */
+    public static final DeferredHolder<EntityType<?>, EntityType<DragonEntity>> DRAGON =
+            REGISTRY.register("dragon", () -> EntityType.Builder
+                    .<DragonEntity>of(DragonEntity::new, MobCategory.MONSTER)
+                    .sized(6.0F, 5.0F)
+                    .eyeHeight(3.6F)
+                    // A boss needs to stay tracked from far enough away to be seen approaching.
+                    .clientTrackingRange(10)
+                    .updateInterval(2)
+                    .build(DRAGON_KEY));
 
     private RasenganEntities() {}
 }
