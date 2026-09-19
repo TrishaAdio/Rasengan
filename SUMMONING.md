@@ -203,6 +203,14 @@ All under `[summoning]` in the server config:
 The keybind is **L** by default (`key.rasengan.summon`), registered through the same keybind pattern
 as the existing ability keys and remappable in Controls like any other.
 
+### Skipping the 300-second wait while testing
+
+`/chargeit summon` fills POWER BAR — SUMMONING instantly, and `/chargeit summon <player>` does it for
+someone else. Same gating as the existing `/chargeit`: Creative for yourself, gamemaster permission
+plus a Creative *target* for anyone else — so it cannot hand a survival player a free boss. It refuses
+mid-cinematic rather than cancelling a running sequence, and it does not bypass the
+one-dragon-per-player rule. Full detail in [`README.md`](README.md#chargeit).
+
 ---
 
 ## 6. Verified on a dedicated server
@@ -210,7 +218,8 @@ as the existing ability keys and remappable in Controls like any other.
 `tools/verify/run_summon_test.sh`. Committed output:
 [`tools/verify/evidence/summon-audit.txt`](tools/verify/evidence/summon-audit.txt).
 
-**71 assertions, 71 pass, 0 fail.**
+**91 assertions, 91 pass, 0 fail.** The command forms are driven through the real Brigadier
+dispatcher, as command text, so the grammar itself is under test and not just the handler.
 
 | check | result |
 |---|---|
@@ -232,6 +241,12 @@ as the existing ability keys and remappable in Controls like any other.
 | `/reload` re-reads the lines | 64 → **65** with no restart |
 | Datapack override | 3 speakable / 5 loaded; the 2 unselected lines never spoken in 4000 draws |
 | Payload codecs round-trip | `SummonStart` 41 bytes exact; `SummonPowerSync` exact; `SummonActivate` 0 bytes |
+| `/chargeit summon` in Survival | refused; bar untouched |
+| `/chargeit summon` in Creative | bar → `READY` at 6000/6000, cooldown cleared, pushed to the client at once |
+| **Bar isolation, both directions** | `/chargeit summon` left the cast bar at `CHARGING`/5; `/chargeit` left the summoning bar at `CHARGING`/7 |
+| The granted charge is real | a summon authorised purely by `/chargeit summon` was accepted and started a cinematic |
+| `/chargeit summon` mid-cinematic | refused; the running cinematic and the `CASTING` state both intact |
+| `/chargeit summon <player>` from console | works; and is refused when the *target* is in Survival |
 | Every line reachable | 4000 draws yielded all 64 distinct |
 | Client isolation intact | 41 non-client classes, **0** referencing `net.minecraft.client` |
 
