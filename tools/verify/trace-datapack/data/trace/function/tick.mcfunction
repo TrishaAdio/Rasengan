@@ -9,3 +9,4 @@
 # routed out through a macro-expanded `say`.
 execute as @e[type=rasengan:rasengan_projectile] run function trace:log_proj with entity @s
 execute as @e[type=minecraft:iron_golem] run function trace:log_golem with entity @s
+execute as @e[type=rasengan:dragon] run function trace:log_dragon with entity @s

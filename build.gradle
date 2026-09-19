@@ -62,6 +62,57 @@ repositories {
         name = 'NeoForged'
         url = 'https://maven.neoforged.net/releases'
     }
+    // GeckoLib is not published to its own maven for this Minecraft version; the artifact is
+    // only available through Modrinth's maven mirror.
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content {
+            includeGroup 'maven.modrinth'
+        }
+    }
+}
+
+// Mod jars that the dev runs need in their mods folder. Kept separate from `compileOnly` below so
+// the jar is resolved once and reused for both purposes.
+configurations {
+    runMods
+}
+
+dependencies {
+    // Animation/rendering engine for the dragon. The mod had no entity-model system at all before
+    // this (the only other entity is drawn procedurally through SubmitCustomGeometryEvent), so
+    // nothing is being duplicated or replaced here.
+    //
+    // compileOnly, not implementation: GeckoLib is a separate mod that the end user installs
+    // alongside this one (it is declared as a required dependency in neoforge.mods.toml), so it
+    // must not be on our runtime classpath as a plain library. FML in 26.1 does not discover mods
+    // from the classpath, so dev runs get it from the mods folder instead - see installRunMods.
+    // Pinned by Modrinth version ID - see the note in gradle.properties. Using the version number
+    // silently selects the Fabric build.
+    compileOnly "maven.modrinth:geckolib:${geckolib_modrinth_version_id}"
+    runMods "maven.modrinth:geckolib:${geckolib_modrinth_version_id}"
+}
+
+// Places mod dependencies where the mod loader actually looks during runClient / runServer.
+// Without this, runServer aborts with "geckolib is not installed" even though the build compiles.
+def runModDirs = ['run/server/mods', 'run/client/mods', 'run/client2/mods']
+def installRunMods = tasks.register('installRunMods') {
+    description = 'Copies mod dependencies into the dev run mods folders.'
+    inputs.files(configurations.runMods)
+    outputs.dirs(runModDirs.collect { file(it) })
+    doLast {
+        runModDirs.each { dir ->
+            copy {
+                from configurations.runMods
+                into file(dir)
+            }
+        }
+    }
+}
+
+tasks.matching { it.name in ['runServer', 'runClient', 'runClient2', 'runData'] }.configureEach {
+    dependsOn installRunMods
 }
 
 // Expand the mod metadata with the gradle.properties values so versions live in one place.
@@ -109,6 +160,10 @@ jar {
         ])
     }
 }
+
+// The publish guard that used to live here was removed once the dragon asset's licence was
+// established as CC BY 4.0, which permits redistribution and modification. The obligation that
+// replaced it is attribution, not exclusion - see DRAGON_CREDITS.md.
 
 publishing {
     publications {

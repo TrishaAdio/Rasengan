@@ -27,3 +27,12 @@ crash-reports/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# NOTE: the dragon model, texture and animations WERE gitignored while their licence was unknown.
+# They are now committed: the source model is CC BY 4.0, which permits redistribution and
+# modification. See DRAGON_CREDITS.md for the required attribution.
+
+# Python bytecode from the asset conversion tooling
+__pycache__/
+*.pyc
