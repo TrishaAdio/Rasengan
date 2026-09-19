@@ -29,13 +29,9 @@ crash-reports/
 Thumbs.db
 
 
-# ---- Dragon asset: licence UNRESOLVED, deliberately not committed ----
-# The model/texture were supplied as a third-party Blockbench export with no licence file of any
-# kind, and provenance points to an All-Rights-Reserved asset (see DRAGON_CREDITS.md). Regenerate
-# locally with tools/dragon/install_dragon_asset.sh if you have the right to use it.
-src/main/resources/assets/rasengan/geo/dragon.geo.json
-src/main/resources/assets/rasengan/animations/dragon.animation.json
-src/main/resources/assets/rasengan/textures/entity/dragon.png
+# NOTE: the dragon model, texture and animations WERE gitignored while their licence was unknown.
+# They are now committed: the source model is CC BY 4.0, which permits redistribution and
+# modification. See DRAGON_CREDITS.md for the required attribution.
 
 # Python bytecode from the asset conversion tooling
 __pycache__/

@@ -161,42 +161,9 @@ jar {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Release guard for the unlicensed dragon asset.
-//
-// The dragon model/texture/animations are gitignored, but that only keeps them out of GIT - it does
-// NOT keep them out of a JAR. processResources copies whatever is sitting in src/main/resources, so
-// once install_dragon_asset.sh has run locally, EVERY `./gradlew build` embeds all three files. That
-// happens even on a branch containing no dragon code at all, which is exactly how an unlicensed
-// asset would escape unnoticed.
-//
-// So: `build` stays usable for local development (testing the mob requires the asset present), but
-// any attempt to PUBLISH fails hard while the files are there. Delete them, or resolve the licence
-// and remove this guard. See DRAGON_CREDITS.md.
-// ---------------------------------------------------------------------------------------------
-final def unlicensedDragonAssets = [
-        'src/main/resources/assets/rasengan/geo/dragon.geo.json',
-        'src/main/resources/assets/rasengan/animations/dragon.animation.json',
-        'src/main/resources/assets/rasengan/textures/entity/dragon.png',
-]
-
-def verifyNoUnlicensedAssets = tasks.register('verifyNoUnlicensedAssets') {
-    description = 'Fails if the licence-unresolved dragon asset would be bundled into a release.'
-    doLast {
-        def present = unlicensedDragonAssets.findAll { file(it).exists() }
-        if (!present.isEmpty()) {
-            throw new GradleException(
-                    "Refusing to publish: the dragon asset has unresolved licensing and would be " +
-                    "embedded in the jar.\n  Present:\n    " + present.join("\n    ") +
-                    "\n  See DRAGON_CREDITS.md. Remove these files to publish, or resolve the " +
-                    "licence with the rights holder first.")
-        }
-    }
-}
-
-tasks.matching { it.name == 'publish' || it.name.startsWith('publishMavenJava') }.configureEach {
-    dependsOn verifyNoUnlicensedAssets
-}
+// The publish guard that used to live here was removed once the dragon asset's licence was
+// established as CC BY 4.0, which permits redistribution and modification. The obligation that
+// replaced it is attribution, not exclusion - see DRAGON_CREDITS.md.
 
 publishing {
     publications {

@@ -3,8 +3,9 @@
 A summon-only, boss-tier flying dragon. **Standalone hostile mob only** — see
 [Future work](#future-work) for what is deliberately absent.
 
-Licensing of the model/texture is **unresolved and blocking**: read
-[`DRAGON_CREDITS.md`](DRAGON_CREDITS.md) before publishing anything.
+The model is third-party work used under **CC BY 4.0** — "Demonic Wingwalker" by **CsDani50**.
+Attribution is mandatory and lives in [`DRAGON_CREDITS.md`](DRAGON_CREDITS.md); read it before
+redistributing.
 
 ## Asset and conversion
 

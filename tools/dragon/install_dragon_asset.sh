@@ -1,31 +1,28 @@
 #!/usr/bin/env bash
 # =============================================================================================
-#  WARNING - ASSET LICENSING IS UNRESOLVED.  READ BEFORE RUNNING.
+#  ATTRIBUTION IS REQUIRED.  READ BEFORE REDISTRIBUTING ANYTHING THIS PRODUCES.
 # =============================================================================================
-#  Do NOT publish, release, or distribute a build with this asset embedded until licensing is
-#  confirmed directly with the rights holder, or the asset is replaced with an original/properly
-#  licensed model.
+#  The source model is third-party work used under CC BY 4.0:
 #
-#  Evidence points to the creature design and model originating with GundunUkan / the Wyrmroost
-#  mod, whose assets are All Rights Reserved and may not be redistributed in modified form. A
-#  CC Attribution claim on a third-party Sketchfab re-upload does not cure this: a re-uploader
-#  cannot grant rights they do not hold. The converted GeckoLib files this script produces are a
-#  derivative work and are covered by the same restriction.
+#    "Demonic Wingwalker" by CsDani50
+#    https://sketchfab.com/3d-models/demonic-wingwalker-f807bf53631e403094920b05dbebde17
+#    Licensed CC BY 4.0 - https://creativecommons.org/licenses/by/4.0/
+#    Changes were made: converted from glTF to Bedrock GeckoLib geometry + animations.
 #
-#  Running this script is fine for LOCAL development and testing. What is not fine is committing
-#  the output, or building a jar from it and shipping that jar. `./gradlew build` embeds all three
-#  files into build/libs/, so do not copy that jar into dist/ or upload it anywhere.
+#  CC BY 4.0 permits redistribution and modification, including commercially, PROVIDED you give
+#  appropriate credit, link the licence, and indicate that changes were made. Do not strip the
+#  attribution in DRAGON_CREDITS.md, and do not imply CsDani50 endorses this mod.
 #
-#  See DRAGON_CREDITS.md for the full evidence and the two resolution paths.
+#  Known residual: the listing marks the model "(THIS IS FANMADE)" of the Wyrmroost mod's creature.
+#  CsDani50 licensed their own model, but the underlying creature design belongs to GundunUkan and
+#  Wyrmroost's assets are All Rights Reserved. See DRAGON_CREDITS.md for the full analysis.
 # =============================================================================================
 #
 # Installs the dragon model, animations and texture into the resource tree.
 #
-# WHY THIS EXISTS: the source asset's licence is UNRESOLVED (see DRAGON_CREDITS.md). The three
-# generated files are therefore gitignored and NOT committed, exactly as AUDIO_CREDITS.md
-# recommends for the shipped audio. Anyone who has the right to use the asset can regenerate them
-# locally by running this script; without them the mod still builds, and the dragon will simply
-# render untextured/absent.
+# WHY THIS EXISTS: the three generated files ARE committed, so you do not need this to build the
+# mod. It is kept as the reproducible, auditable path that produced them - and as the mechanism for
+# swapping in a replacement model, should the one documented in DRAGON_CREDITS.md ever need to go.
 #
 # Usage:
 #   tools/dragon/install_dragon_asset.sh [path-to-jowla7.zip]
@@ -83,9 +80,7 @@ echo "installed:"
 ls -la "$GEO_DIR/dragon.geo.json" "$ANIM_DIR/dragon.animation.json" "$TEX_DIR/dragon.png"
 echo
 echo "=============================================================================="
-echo " These files are gitignored on purpose. LOCAL USE ONLY."
-echo " Do NOT commit them, and do NOT publish or distribute a jar built with them,"
-echo " until licensing is confirmed with the rights holder or the asset is replaced."
-echo " ./gradlew build WILL embed them into build/libs/ - do not copy that to dist/."
-echo " See DRAGON_CREDITS.md."
+echo " Source model: \"Demonic Wingwalker\" by CsDani50, licensed CC BY 4.0."
+echo " Redistribution is permitted, but ATTRIBUTION IS MANDATORY - keep the credit"
+echo " in DRAGON_CREDITS.md intact, including the note that changes were made."
 echo "=============================================================================="

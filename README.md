@@ -799,11 +799,11 @@ src/main/java/dev/rasengan/
 
 ## 12. Assets and originality
 
-Every asset in this mod is original and generated:
+### The Rasengan / Rasen Shuriken abilities — fully original and generated
 
 - **No imported models.** The sphere is a procedurally generated icosphere built in code from an
   icosahedron by edge-midpoint subdivision. Rings, helices and ribbons are evaluated from
-  parametric equations at runtime. There is no model file in the repository.
+  parametric equations at runtime. There is no model file for the abilities.
 - **No imported textures.** The three particle textures are produced by
   `tools/generate_particle_textures.py`, which evaluates a mathematical falloff per pixel and
   writes the PNG with the Python standard library. They are white-with-alpha so the code tints
@@ -811,10 +811,33 @@ Every asset in this mod is original and generated:
 - **No imported sounds.** Impact and cast audio are layered stock Minecraft sound events, pitched
   and attenuated in code.
 
-Nothing was taken from any other game, anime, mod or media source.
+Nothing in the ability effects was taken from any other game, anime, mod or media source.
+
+### The dragon mob — third-party asset under CC BY 4.0
+
+The dragon is the one exception, and it is deliberately called out rather than folded into the claim
+above. Its model, texture and animations are **not** original to this project:
+
+> **"Demonic Wingwalker"** by **CsDani50** — source:
+> <https://sketchfab.com/3d-models/demonic-wingwalker-f807bf53631e403094920b05dbebde17> —
+> licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+> **Changes were made:** exported from Blockbench as glTF 2.0 and converted by this project into
+> Bedrock-format GeckoLib geometry and animations; texture re-extracted from the glTF to correct its
+> vertical orientation.
+
+CC BY 4.0 permits redistribution and modification, including commercially, provided credit is given,
+the licence is linked, and changes are indicated. Full details, the confirmed identity of the asset,
+and a documented residual risk regarding the underlying creature design are in
+[`DRAGON_CREDITS.md`](DRAGON_CREDITS.md) — read it before redistributing.
 
 ---
 
 ## 13. Licence
 
-MIT. See `gradle.properties` for the declared licence field used in the mod metadata.
+- **Code:** MIT. See `gradle.properties` for the declared licence field used in the mod metadata.
+- **Ability assets** (particle textures, procedural geometry, audio): original to this project,
+  covered by the same MIT licence.
+- **Dragon model, texture and animations:** CC BY 4.0, © CsDani50 — **not** MIT. See
+  [`DRAGON_CREDITS.md`](DRAGON_CREDITS.md). CC BY is neither ShareAlike nor NonCommercial, so it does
+  not propagate to the code; the two licences coexist.
+- **GeckoLib 5.5.2** by Tslat: MIT, declared as a required dependency and not bundled.
