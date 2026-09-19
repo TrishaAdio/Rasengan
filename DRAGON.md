@@ -54,18 +54,65 @@ tall. The collision box is deliberately the *body*: `6.0 × 5.0`. The wings reac
 as the Ender Dragon's do — a 29-block-wide box on a flying mob could not path anywhere and could be
 hit from absurd range. No render scale is applied, so hitbox and model share one scale.
 
-## Flight AI — why it does not pathfind
+## Flight AI — two bugs, both measured
 
-The obvious build (`WaterAvoidingRandomFlyingGoal` over `FlyingPathNavigation`, as parrots and
-allays use) produced a dragon that **never moved: 0.00 blocks over 500 ticks**. That goal asks the
-navigator to path to a chosen point, and the node evaluator cannot fit a 6×5 collision box, so every
-request failed silently.
+### 1. Pathfinding cannot route this hitbox
 
-Vanilla's own answer for a large flyer is the Ghast: steer by writing directly to the move control
-with `setWantedPosition` and never pathfind. `FlyingMoveControl.tick()` honours that with no
-navigator involved. So wandering reuses vanilla's `Ghast.RandomFloatAroundGoal` (it accepts any
-`Mob`), and the melee approach uses the same technique rather than `MeleeAttackGoal`, which would
-also have depended on navigation.
+`WaterAvoidingRandomFlyingGoal` over `FlyingPathNavigation` (what parrots and allays use) produced a
+dragon that **never moved: 0.00 blocks over 500 ticks**. That goal asks the navigator to path to a
+chosen point, and the node evaluator cannot fit a 6×5 collision box, so every request failed
+silently. `FlyingPathNavigation` is still assigned — a `Mob` needs one — but nothing steers through
+it. Flight is steering-based, like the Ender Dragon and the Ghast.
+
+### 2. `FlyingMoveControl` only thrusts for one tick
+
+Switching the wander goal to `Ghast.RandomFloatAroundGoal` fixed the freeze but produced jitter, not
+flight. `FlyingMoveControl.tick()` flips `operation` to `WAIT` on entry to its `MOVE_TO` branch, and
+on every later tick takes the else branch and calls `setYya(0)`/`setZza(0)`. That is correct only
+when a **path navigator re-issues the destination every tick** — which is exactly what bees and
+parrots have. Ghast's goal sets a destination *once*, because `GhastMoveControl` keeps its own state.
+Pairing the two gave: one tick of thrust → stall → `hasWanted()` false → instant re-target.
+
+Measured, before the fix:
+
+| | before | after |
+|---|---|---|
+| mean speed | 0.049 blocks/tick (**8.2%** of the 0.6 attribute) | **0.508** (85%) |
+| thrust spikes | one every **3.8 ticks** | one every ~50–90 |
+| path over 500 ticks | 25.8 blocks | ~460 blocks per 900 |
+
+### The replacement
+
+`DragonFlightMoveControl` holds its destination across ticks, limits heading change to **4°/tick**
+(a ~8 block turn radius, so course changes are banked arcs), thrusts along its *current* heading
+rather than straight at the target — which is what produces curves instead of sideways drift — and
+**lerps** velocity toward the desired vector rather than assigning it. Vertical is eased separately
+and clamped.
+
+`DragonWanderFlightGoal` commits to 24–48 block legs within ±55° of the current heading, so legs
+chain into long arcs, and changes target altitude by at most 14 blocks per leg inside a
+terrain-clearance band.
+
+Obstacle avoidance has three parts, each fixing a distinct failure:
+
+- **Body-width clearance probe.** A single centre raycast reports a 1-block gap as passable for a
+  6-block-wide dragon, which then wedges. Clearance is cast as a bundle — centre, both wingtips at
+  half-width, above and below.
+- **Turn-radius-scaled look-ahead.** A fixed distance is wrong: the turn radius is
+  `speed / turnRate`, so a warning shorter than ~2× that arrives too late regardless of how hard it
+  turns.
+- **Graduated evasion.** Turn rate scales up to 3× (12°/tick) with proximity, and on
+  `horizontalCollision` the horizontal velocity is bled off — holding cruise velocity into stone
+  keeps the vector saturated so the lerp can never rotate it away. Escape headings are
+  clearance-checked in both directions before use, falling back to a climb.
+
+## Animation is driven by replicated movement state
+
+`DATA_FLIGHT_STATE` is derived server-side from real velocity each tick and replicated, rather than
+each client guessing from `getDeltaMovement()` — which for a server-driven mob is only intermittently
+synced, and could play a flap cycle at a standstill. States: ground idle/walk, hover, flap (climbing
+or driving), glide (losing height with forward speed). Sending the decision also guarantees every
+viewer sees the same animation for the same dragon.
 
 ## Attacks
 
@@ -96,7 +143,7 @@ speed, attack damage, follow range, `can_fly`, `boss_bar`, `aggressive`, and the
 | `/spawn dragon` | spawns; health `300.0` (config) |
 | Unknown mob rejected | `Unknown mob 'notamob'. Available: dragon` |
 | `/summon rasengan:dragon` | spawns |
-| Untethered wandering flight | 25.80 blocks travelled over 500 ticks, **499 distinct positions**, y from −59.38 to −51.20 (airborne), **zero players connected** |
+| Untethered wandering flight | see the flight table below; **zero players connected**, so movement cannot be player-following |
 | Takes damage from a mob | 300.0 → 195.5 (104.5 taken from an iron golem) |
 | Deals melee damage | golem 100.0 → 12.0 (88.0 dealt) |
 | Fire breath connects | golem **on fire 127/324 ticks**, peak 99 fire ticks — only the breath ignites, so this isolates it from the bite |
@@ -107,6 +154,37 @@ speed, attack damage, follow range, `can_fly`, `boss_bar`, `aggressive`, and the
 | Loot drops | items present after death |
 | Dedicated-server boot | clean; GeckoLib 5.5.2 loads; no exceptions |
 | Client isolation intact | 31 non-client classes, **0** referencing `net.minecraft.client` |
+
+### Flight quality, measured
+
+`tools/verify/run_flight_test.sh` + `analyse_flight.py`, three scenarios on a dedicated server.
+Committed output: [`tools/verify/evidence/flight-evidence.txt`](tools/verify/evidence/flight-evidence.txt).
+
+| scenario | path | mean speed | stalled ticks | yaw/tick p99 / max | vertical step p99 | evading |
+|---|---|---|---|---|---|---|
+| open sky | 461 blocks | 0.508 b/t (85%) | **0** | 4.00 / 4.00° | 0.0285 b/t | 0.0% |
+| walls + pillars | 563 blocks | 0.507 b/t | **0** | 4.00 / 12.00° | 0.0198 b/t | 0.3% |
+| 3 dragons at once | 462 blocks min | 0.512 b/t | **0** | 12.00 / 12.00° | 0.0254 b/t | 1.6% |
+
+Travel efficiency (distance actually moved ÷ velocity commanded) is 101–102% in all three, so
+essentially none of the commanded velocity is being absorbed by geometry.
+
+Independence across 3 simultaneous dragons: 3/3 distinct spatial spans and 3/3 distinct turn
+profiles (mean turn rates 1.07 / 0.25 / 0.33 °/tick). Path *length* is deliberately not used as the
+independence test — all three cruise at the same speed for the same duration, so similar totals prove
+nothing either way.
+
+#### Two measurement traps worth recording
+
+- **Velocity magnitude is not movement.** An entity grinding against a wall keeps a full cruise
+  velocity vector while `move()` refuses to advance it, so a velocity-based stall check reported
+  healthy flight for a dragon that was completely stuck. The analyser measures actual per-tick
+  displacement.
+- **An unloaded entity looks exactly like a stuck one.** Every apparent 400–780 tick "freeze" was the
+  dragon crossing a forceload boundary and ceasing to tick — position, velocity *and* rotation frozen
+  at byte-identical values. All of them sat at |x| ≈ 96 or |z| ≈ 112, the edges of the forceloaded
+  region. Detected structurally (nothing changed at all) and excluded; the harness now recentres the
+  dragon and starts from a clean world each run.
 
 ### NOT verified — no display, no second client
 

@@ -84,6 +84,25 @@ public class DragonEntity extends Monster implements GeoEntity {
     private static final EntityDataAccessor<Boolean> DATA_BREATHING =
             SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.BOOLEAN);
 
+    // ---- Flight state, computed server-side from real velocity and replicated ----
+    public static final byte STATE_GROUND_IDLE = 0;
+    public static final byte STATE_GROUND_WALK = 1;
+    public static final byte STATE_HOVER = 2;
+    public static final byte STATE_FLAP = 3;
+    public static final byte STATE_GLIDE = 4;
+
+    /**
+     * Which locomotion animation to play.
+     *
+     * <p>Replicated rather than re-derived on each client. The server is the only side that knows
+     * the true velocity - a client only sees interpolated positions and an occasionally synced
+     * velocity - so deciding "flap or glide" locally would give different clients different
+     * answers for the same dragon. Sending the decision keeps the animation tied to actual
+     * movement and keeps every viewer in agreement.
+     */
+    private static final EntityDataAccessor<Byte> DATA_FLIGHT_STATE =
+            SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.BYTE);
+
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
     private final ServerBossEvent bossEvent = new ServerBossEvent(
@@ -97,9 +116,11 @@ public class DragonEntity extends Monster implements GeoEntity {
 
     public DragonEntity(EntityType<? extends DragonEntity> type, Level level) {
         super(type, level);
-        // hoversInPlace = true: a dragon should be able to hold a position in the air rather than
-        // constantly sinking toward the ground between path nodes.
-        this.moveControl = new FlyingMoveControl(this, 20, true);
+        // Steering flight control, NOT FlyingMoveControl. The latter only applies thrust on the tick
+        // a destination is set and zeroes the movement inputs on every tick after, which is correct
+        // only when a path navigator re-issues the destination every tick. See
+        // DragonFlightMoveControl for the measured failure that caused.
+        this.moveControl = new DragonFlightMoveControl(this);
         this.xpReward = 250;
         // A fire-breathing creature should not refuse to path over its own element. 26.1 names
         // these PathType.FIRE and PathType.DAMAGING (there is no DANGER_FIRE/DAMAGE_FIRE here).
@@ -147,6 +168,64 @@ public class DragonEntity extends Monster implements GeoEntity {
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         super.defineSynchedData(builder);
         builder.define(DATA_BREATHING, false);
+        builder.define(DATA_FLIGHT_STATE, STATE_GROUND_IDLE);
+    }
+
+    public boolean isFlyingEnabled() {
+        return RasenganConfig.SERVER.dragonCanFly.get();
+    }
+
+    public byte flightState() {
+        return this.entityData.get(DATA_FLIGHT_STATE);
+    }
+
+    /**
+     * Classifies locomotion from the real velocity, server-side, once per tick.
+     *
+     * <p>Thresholds are on actual movement, so a hovering dragon does not play a flap cycle and a
+     * descending one does not play a climb. That is the difference between an animation tied to
+     * movement and a loop that runs regardless.
+     */
+    private void updateFlightState() {
+        Vec3 velocity = getDeltaMovement();
+        double horizontal = Math.sqrt(velocity.x * velocity.x + velocity.z * velocity.z);
+        byte state;
+        if (onGround()) {
+            state = horizontal > 0.02D ? STATE_GROUND_WALK : STATE_GROUND_IDLE;
+        } else if (velocity.y < -0.06D && horizontal > 0.12D) {
+            // Losing height with forward speed: coasting.
+            state = STATE_GLIDE;
+        } else if (horizontal > 0.05D || velocity.y > 0.02D) {
+            // Driving forward or climbing: working the wings.
+            state = STATE_FLAP;
+        } else {
+            state = STATE_HOVER;
+        }
+        if (state != flightState()) {
+            this.entityData.set(DATA_FLIGHT_STATE, state);
+        }
+    }
+
+    /**
+     * Flight integration.
+     *
+     * <p>While airborne the velocity written by {@link DragonFlightMoveControl} is moved through
+     * {@link #move} directly, so collision still applies, and only a token drag is taken off. The
+     * inherited {@code travel} would apply walking friction and gravity against the controller every
+     * tick, which fights the velocity lerp and makes cruise speed an emergent fraction of the
+     * configured one instead of the configured value.
+     */
+    @Override
+    public void travel(Vec3 input) {
+        if (isFlyingEnabled() && !onGround() && !isInWater()) {
+            move(net.minecraft.world.entity.MoverType.SELF, getDeltaMovement());
+            // Near-unity: the move control's lerp is the intended smoothing. This exists only so a
+            // dragon whose controller goes idle glides to a stop instead of drifting forever.
+            setDeltaMovement(getDeltaMovement().scale(0.99D));
+            calculateEntityAnimation(false);
+        } else {
+            super.travel(input);
+        }
     }
 
     /**
@@ -176,7 +255,10 @@ public class DragonEntity extends Monster implements GeoEntity {
             // Charge the target and bite, steering directly. Higher priority than wandering.
             this.goalSelector.addGoal(2, new DragonChargeAndBiteGoal(this));
             // Untethered wandering. Nothing here references a player, so it cannot trail one.
-            this.goalSelector.addGoal(5, new Ghast.RandomFloatAroundGoal(this, 0));
+            // Replaces Ghast.RandomFloatAroundGoal, which sets a destination once per target and
+            // therefore stalled against FlyingMoveControl; this goal commits to long legs and lets
+            // DragonFlightMoveControl steer smoothly toward them.
+            this.goalSelector.addGoal(5, new DragonWanderFlightGoal(this));
         } else {
             // Grounded variant: ordinary pathfinding is fine once it is not trying to fly.
             this.goalSelector.addGoal(2, new MeleeAttackGoal(this, 1.0D, true));
@@ -272,6 +354,7 @@ public class DragonEntity extends Monster implements GeoEntity {
         if (RasenganConfig.SERVER.dragonBossBar.get()) {
             bossEvent.setProgress(getHealth() / Math.max(1.0F, getMaxHealth()));
         }
+        updateFlightState();
         tickBreath((ServerLevel) level());
     }
 
@@ -467,14 +550,19 @@ public class DragonEntity extends Monster implements GeoEntity {
      */
     @Override
     public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+        // Driven by the replicated flight state, which the server derives from real velocity. The
+        // previous version guessed from client-side getDeltaMovement(), which for a server-driven
+        // mob is only intermittently synced - so it could play a flap cycle at a standstill.
+        // 5-tick transitions blend between cycles instead of cutting.
         controllers.add(new AnimationController<DragonEntity>("locomotion", 5, test -> {
-            DragonEntity dragon = test.animatable();
-            if (!dragon.onGround() && !dragon.isInWater()) {
-                // Flap when climbing or moving under power, glide when coasting.
-                boolean powered = dragon.getDeltaMovement().y > -0.05D || test.isMoving();
-                return test.setAndContinue(powered ? ANIM_FLY : ANIM_GLIDE);
-            }
-            return test.setAndContinue(test.isMoving() ? ANIM_WALK : ANIM_IDLE);
+            RawAnimation animation = switch (test.animatable().flightState()) {
+                case STATE_GROUND_WALK -> ANIM_WALK;
+                case STATE_FLAP -> ANIM_FLY;
+                case STATE_GLIDE -> ANIM_GLIDE;
+                case STATE_HOVER -> ANIM_FLY;
+                default -> ANIM_IDLE;
+            };
+            return test.setAndContinue(animation);
         }));
 
         controllers.add(new AnimationController<DragonEntity>("action", 0, test -> {
