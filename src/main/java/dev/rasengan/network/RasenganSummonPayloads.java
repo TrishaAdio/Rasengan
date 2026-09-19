@@ -78,17 +78,33 @@ public final class RasenganSummonPayloads {
     // ------------------------------------------------------------------
 
     /**
-     * Start of the cinematic.
+     * Start of the cinematic. Sent once, to everyone in range, on the sequence's first tick.
      *
-     * @param summonerId    entity id of the summoning player, so observers can anchor the seal
-     * @param seed          drives every procedural detail; identical on every client
-     * @param x,y,z         the seal's centre, pinned server-side so it cannot drift with the player
-     * @param totalTicks    full sequence length
-     * @param revealTick    tick within the sequence at which the dragon appears
-     * @param cameraTicks   packed camera window: {@code (start << 16) | end}, 0 when disabled
+     * <p>Everything the client needs to render all five stages without another packet: the anchor,
+     * the seed, the stage lengths and the cosmetic policy. The stage <em>boundaries</em> are not sent
+     * because both sides derive them from {@code totalTicks} and {@code revealTick} through
+     * {@link dev.rasengan.SummonTimeline}, so there is one layout rather than two that must agree.
+     *
+     * @param summonerId         entity id of the summoning player, so observers can anchor the seal
+     * @param dragonId           entity id of the already-spawned, still-hidden dragon. Sent at the
+     *                           start rather than at the reveal so the client can warm its model and
+     *                           texture during the smoke, instead of loading them on the reveal frame
+     * @param seed               drives every procedural detail; identical on every client
+     * @param x,y,z              the seal's centre, pinned server-side so it cannot drift if the
+     *                           summoner walks during the sequence
+     * @param totalTicks         full sequence length
+     * @param revealTick         tick at which the dragon becomes visible
+     * @param cameraReleaseTicks ticks over which the camera eases back, or <b>0 when the cinematic
+     *                           camera is disabled entirely</b> - the visuals are unaffected either way
+     * @param cameraRadius       blocks within which an observer gets the camera move, with a taper
+     * @param smokeDensity       server-side multiplier on smoke particle counts
+     * @param vignette           whether the reveal may pulse a screen-edge vignette
      */
-    public record SummonStart(int summonerId, long seed, double x, double y, double z,
-                              int totalTicks, int revealTick, int cameraTicks)
+    public record SummonStart(int summonerId, int dragonId, long seed,
+                              double x, double y, double z,
+                              int totalTicks, int revealTick,
+                              int cameraReleaseTicks, float cameraRadius,
+                              float smokeDensity, boolean vignette)
             implements CustomPacketPayload {
 
         public static final CustomPacketPayload.Type<SummonStart> TYPE = payloadType("summon_start");
@@ -96,13 +112,17 @@ public final class RasenganSummonPayloads {
         public static final StreamCodec<RegistryFriendlyByteBuf, SummonStart> CODEC =
                 StreamCodec.composite(
                         ByteBufCodecs.VAR_INT, SummonStart::summonerId,
+                        ByteBufCodecs.VAR_INT, SummonStart::dragonId,
                         ByteBufCodecs.VAR_LONG, SummonStart::seed,
                         ByteBufCodecs.DOUBLE, SummonStart::x,
                         ByteBufCodecs.DOUBLE, SummonStart::y,
                         ByteBufCodecs.DOUBLE, SummonStart::z,
                         ByteBufCodecs.VAR_INT, SummonStart::totalTicks,
                         ByteBufCodecs.VAR_INT, SummonStart::revealTick,
-                        ByteBufCodecs.VAR_INT, SummonStart::cameraTicks,
+                        ByteBufCodecs.VAR_INT, SummonStart::cameraReleaseTicks,
+                        ByteBufCodecs.FLOAT, SummonStart::cameraRadius,
+                        ByteBufCodecs.FLOAT, SummonStart::smokeDensity,
+                        ByteBufCodecs.BOOL, SummonStart::vignette,
                         SummonStart::new);
 
         @Override
@@ -110,20 +130,70 @@ public final class RasenganSummonPayloads {
             return TYPE;
         }
 
-        public int cameraStart() {
-            return (cameraTicks >>> 16) & 0xFFFF;
-        }
-
-        public int cameraEnd() {
-            return cameraTicks & 0xFFFF;
-        }
-
         public boolean cameraEnabled() {
-            return cameraTicks != 0;
+            return cameraReleaseTicks > 0;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Server -> Client: the sequence is over, one way or another.
+    // ------------------------------------------------------------------
+
+    /**
+     * End of a cinematic.
+     *
+     * <h2>Why this packet exists</h2>
+     * Without it, an interrupted sequence was only ever cleaned up on the <em>server</em>: the entry
+     * was dropped from the pending map and the client was never told, so every nearby client kept
+     * running the timeline to its natural end - still rolling the camera, still erupting smoke for a
+     * summon that had been abandoned. The client's own expiry eventually stopped it, but "eventually"
+     * is the whole problem when the trigger was the summoner dying.
+     *
+     * <p>{@link Reason#INTERRUPTED} asks the client to abort: ease the camera back from wherever it
+     * is, stop emitting, and cut the summoning sound. {@link Reason#COMPLETED} is the normal ending
+     * and lets the settle stage finish as authored.
+     *
+     * @param summonerId entity id of the summoner whose sequence is ending
+     * @param reason     ordinal of {@link Reason}
+     */
+    public record SummonEnd(int summonerId, int reason) implements CustomPacketPayload {
+
+        /** Why a sequence ended. Ordinals are the wire format; append only. */
+        public enum Reason {
+            /** Ran to its natural end. Stage E plays out normally. */
+            COMPLETED,
+            /**
+             * Abandoned early - the summoner died, disconnected, changed dimension or turned
+             * spectator, or the dragon failed to spawn. The client aborts and restores the camera.
+             */
+            INTERRUPTED;
+
+            private static final Reason[] VALUES = values();
+
+            public static Reason byId(int id) {
+                return id >= 0 && id < VALUES.length ? VALUES[id] : INTERRUPTED;
+            }
         }
 
-        public static int packCamera(int start, int end) {
-            return ((start & 0xFFFF) << 16) | (end & 0xFFFF);
+        public static final CustomPacketPayload.Type<SummonEnd> TYPE = payloadType("summon_end");
+
+        public static final StreamCodec<RegistryFriendlyByteBuf, SummonEnd> CODEC =
+                StreamCodec.composite(
+                        ByteBufCodecs.VAR_INT, SummonEnd::summonerId,
+                        ByteBufCodecs.VAR_INT, SummonEnd::reason,
+                        SummonEnd::new);
+
+        public static SummonEnd of(int summonerId, Reason reason) {
+            return new SummonEnd(summonerId, reason.ordinal());
+        }
+
+        public Reason reasonValue() {
+            return Reason.byId(reason);
+        }
+
+        @Override
+        public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
+            return TYPE;
         }
     }
 }

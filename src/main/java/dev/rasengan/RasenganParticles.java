@@ -37,7 +37,45 @@ public final class RasenganParticles {
     /** Dense burst fragments emitted at the impact point. */
     public static final DeferredHolder<ParticleType<?>, SimpleParticleType> BURST = simple("burst");
 
+    // ------------------------------------------------------------------
+    // Summoning smoke
+    // ------------------------------------------------------------------
+    // Alpha-blended rather than additive, unlike everything above, because the reveal depends on the
+    // summon being hidden and additive blending can only brighten. Drawn by SmokeParticle.
+
+    /** The main eruption column: large, dense, heavily dragged billboards. Never culled. */
+    public static final DeferredHolder<ParticleType<?>, SimpleParticleType> SMOKE_BILLOW =
+            unlimited("smoke_billow");
+
+    /** Fraying edge wisps, so the cloud has no hard boundary. First to go under load. */
+    public static final DeferredHolder<ParticleType<?>, SimpleParticleType> SMOKE_WISP =
+            simple("smoke_wisp");
+
+    /** The rolling low layer that spreads outward along the ground. */
+    public static final DeferredHolder<ParticleType<?>, SimpleParticleType> GROUND_FOG =
+            simple("ground_fog");
+
+    /** Near-camera dust motes for depth, only for close observers. */
+    public static final DeferredHolder<ParticleType<?>, SimpleParticleType> DUST_MOTE =
+            simple("dust_mote");
+
+    /** The fear tell above a frightened mob's head. */
+    public static final DeferredHolder<ParticleType<?>, SimpleParticleType> FEAR = simple("fear");
+
     private RasenganParticles() {}
+
+    /**
+     * A type that ignores the client's particle-count limiter.
+     *
+     * <p>Used only for the eruption column. Everything else in this mod is cosmetic garnish that a
+     * player is welcome to turn down, but the column is load-bearing: if the limiter drops it, the
+     * summon is not hidden and the reveal does not work. Density is still reduced for "Decreased" and
+     * "Minimal" through {@link dev.rasengan.client.ClientTuning}, so the setting is respected - it
+     * just cannot cull the column to nothing.
+     */
+    private static DeferredHolder<ParticleType<?>, SimpleParticleType> unlimited(String name) {
+        return REGISTRY.register(name, () -> new SimpleParticleType(true));
+    }
 
     private static DeferredHolder<ParticleType<?>, SimpleParticleType> simple(String name) {
         // overrideLimiter = false: respect the client's particle setting so "Minimal" users

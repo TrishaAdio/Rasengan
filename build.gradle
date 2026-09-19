@@ -177,3 +177,16 @@ publishing {
         }
     }
 }
+
+// Prints the main runtime classpath, for the verification harnesses in tools/verify/ that compile
+// and run OUTSIDE the mod jar (SummonCinematicAudit, AnimationAudit). Those harnesses deliberately
+// are not part of any source set - they must never end up in a published jar - so they need the
+// classpath handed to them rather than inherited.
+//
+// Note for callers: GeckoLib is resolved as a mod dependency and is NOT on this path. A harness that
+// touches DragonEntity has to append the geckolib jar itself, or it fails with "cannot access
+// GeoEntity". run_cinematic_audit.sh does that.
+tasks.register('printAuditClasspath') {
+    description = 'Prints the main runtime classpath for the tools/verify harnesses.'
+    doLast { println sourceSets.main.runtimeClasspath.asPath }
+}
