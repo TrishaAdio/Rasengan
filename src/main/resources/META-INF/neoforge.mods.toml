@@ -26,13 +26,3 @@ type = "required"
 versionRange = "[26.1.2,26.2)"
 ordering = "NONE"
 side = "BOTH"
-
-
-# Animation/rendering engine for the dragon mob. Required on BOTH sides: the server needs the
-# GeoAnimatable interface that DragonEntity implements, and the client needs the renderer.
-[[dependencies.${mod_id}]]
-modId = "geckolib"
-type = "required"
-versionRange = "[5.5.1,6)"
-ordering = "AFTER"
-side = "BOTH"
