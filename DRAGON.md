@@ -3,9 +3,12 @@
 A summon-only, boss-tier flying dragon. **Standalone hostile mob only** — see
 [Future work](#future-work) for what is deliberately absent.
 
-The model is third-party work used under **CC BY 4.0** — "Demonic Wingwalker" by **CsDani50**.
-Attribution is mandatory and lives in [`DRAGON_CREDITS.md`](DRAGON_CREDITS.md); read it before
-redistributing.
+The model is third-party work: **"Demonic Wingwalker"** by **CsDani50**
+([source](https://sketchfab.com/3d-models/demonic-wingwalker-f807bf53631e403094920b05dbebde17)),
+licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). **Changes were made:** converted
+from glTF to Bedrock GeckoLib geometry and animations, and the texture was re-extracted from the
+glTF to correct its vertical orientation. Full attribution and the documented residual risk are in
+[`DRAGON_CREDITS.md`](DRAGON_CREDITS.md) — read it before redistributing.
 
 ## Asset and conversion
 
