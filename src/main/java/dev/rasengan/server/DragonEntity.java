@@ -114,6 +114,18 @@ public class DragonEntity extends Monster implements GeoEntity {
     private int breathCooldown;
     private int breathTicksLeft;
 
+    /**
+     * Who summoned this dragon, if anyone.
+     *
+     * <p>Bookkeeping for the one-dragon-per-player limit and nothing else. It confers no control, no
+     * taming, no riding and no loyalty - the dragon is as hostile to its summoner as to anyone else.
+     * Those mechanics remain out of scope.
+     */
+    private UUID summonerUuid;
+
+    /** Ticks remaining of the arrival flourish, during which it holds position and roars. */
+    private int entranceTicks;
+
     public DragonEntity(EntityType<? extends DragonEntity> type, Level level) {
         super(type, level);
         // Steering flight control, NOT FlyingMoveControl. The latter only applies thrust on the tick
@@ -173,6 +185,30 @@ public class DragonEntity extends Monster implements GeoEntity {
 
     public boolean isFlyingEnabled() {
         return RasenganConfig.SERVER.dragonCanFly.get();
+    }
+
+    public void setSummoner(UUID summoner) {
+        this.summonerUuid = summoner;
+    }
+
+    public UUID summoner() {
+        return this.summonerUuid;
+    }
+
+    /**
+     * Begins the arrival flourish: wings out, a roar, and a brief hold before normal AI takes over.
+     *
+     * <p>Kept short and implemented as a hold rather than a scripted path, so the handover into the
+     * existing flight AI needs no special case - once the counter expires the wander goal simply
+     * starts choosing destinations as usual.
+     */
+    public void beginEntrance() {
+        this.entranceTicks = 30;
+        this.entityData.set(DATA_FLIGHT_STATE, STATE_FLAP);
+    }
+
+    public boolean isEntering() {
+        return this.entranceTicks > 0;
     }
 
     public byte flightState() {
@@ -353,6 +389,15 @@ public class DragonEntity extends Monster implements GeoEntity {
         }
         if (RasenganConfig.SERVER.dragonBossBar.get()) {
             bossEvent.setProgress(getHealth() / Math.max(1.0F, getMaxHealth()));
+        }
+        if (entranceTicks > 0) {
+            entranceTicks--;
+            // Hold roughly in place during the flourish so it reads as rising out of the seal
+            // rather than immediately flying off. Gentle lift, no horizontal drive.
+            setDeltaMovement(getDeltaMovement().multiply(0.6D, 1.0D, 0.6D).add(0.0D, 0.06D, 0.0D));
+            // Deliberately silent: ServerSummonManager already plays the reveal sound at the spawn
+            // point on this same tick, at the configured volume. A second play of the same 1.6s
+            // sample from the entity would overlap itself and ignore sound_volume.
         }
         updateFlightState();
         tickBreath((ServerLevel) level());

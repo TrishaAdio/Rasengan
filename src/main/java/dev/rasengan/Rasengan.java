@@ -50,7 +50,10 @@ public final class Rasengan {
         IEventBus gameBus = NeoForge.EVENT_BUS;
         ServerPowerManager.register(gameBus);
         ServerCastManager.register(gameBus);
+        dev.rasengan.server.ServerSummonManager.register(gameBus);
         gameBus.addListener(Rasengan::registerCommands);
+        gameBus.addListener(Rasengan::registerReloadListeners);
+        gameBus.addListener(Rasengan::onServerStopping);
 
         if (FMLEnvironment.getDist().isClient()) {
             dev.rasengan.client.RasenganClient.init(modBus, gameBus);
@@ -114,6 +117,40 @@ public final class Rasengan {
                 RasenganPayloads.Activate.TYPE,
                 RasenganPayloads.Activate.CODEC,
                 (payload, context) -> ServerCastManager.onActivateRequest(context, payload.ability()));
+
+        // ---- Summoning Jutsu ----
+        registrar.playToClient(
+                dev.rasengan.network.RasenganSummonPayloads.SummonPowerSync.TYPE,
+                dev.rasengan.network.RasenganSummonPayloads.SummonPowerSync.CODEC,
+                Rasengan::toClient);
+        registrar.playToClient(
+                dev.rasengan.network.RasenganSummonPayloads.SummonStart.TYPE,
+                dev.rasengan.network.RasenganSummonPayloads.SummonStart.CODEC,
+                Rasengan::toClient);
+        registrar.playToServer(
+                dev.rasengan.network.RasenganSummonPayloads.SummonActivate.TYPE,
+                dev.rasengan.network.RasenganSummonPayloads.SummonActivate.CODEC,
+                (payload, context) ->
+                        dev.rasengan.server.ServerSummonManager.onActivateRequest(context));
+    }
+
+    /**
+     * Registers the awakening-lines data loader.
+     *
+     * <p>Hooking the reload event is what makes {@code /reload} pick up edits to the lines file with
+     * no restart, and lets a datapack override or extend the shipped set.
+     */
+    private static void registerReloadListeners(
+            net.neoforged.neoforge.event.AddServerReloadListenersEvent event) {
+        event.addRetainedListener(
+                net.neoforged.neoforge.resource.ListenerKey.create(id("summon_lines")),
+                dev.rasengan.server.SummonLines.get());
+    }
+
+    /** Drops summon bookkeeping so nothing survives a restart. */
+    private static void onServerStopping(net.neoforged.neoforge.event.server.ServerStoppingEvent event) {
+        dev.rasengan.server.ServerSummonManager.clearAll();
+        ServerCastManager.clearAll();
     }
 
     /**

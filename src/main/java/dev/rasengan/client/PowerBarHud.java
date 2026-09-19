@@ -117,6 +117,9 @@ public final class PowerBarHud implements GuiLayer {
                     Palette.argb(Palette.HIGHLIGHT, 0.75F));
         }
 
+        // ---- Second, independent bar: POWER BAR - SUMMONING ----
+        renderSummonBar(graphics, font, centreX, barX, barY, partialTick);
+
         // ---- Readout ----
         Component readout = switch (state) {
             case READY -> Component.literal("100%  READY");
@@ -211,6 +214,55 @@ public final class PowerBarHud implements GuiLayer {
             graphics.fill(right, barY - 1, right + 2, barY + BAR_HEIGHT + 1, halo);
         }
     }
+
+    /**
+     * The summoning bar, drawn directly beneath the cast bar.
+     *
+     * <p>A separate bar rather than a second fill on the same one, because the two are independent:
+     * showing them as one bar would imply spending from a shared pool. Deliberately thinner and in
+     * the dragon's ember colour so a glance distinguishes it from the cyan cast bar.
+     */
+    private void renderSummonBar(GuiGraphicsExtractor graphics, Font font, int centreX,
+                                 int barX, int castBarY, float partialTick) {
+        if (!ClientSummonPowerState.isInitialised()) {
+            return;
+        }
+        final int height = 5;
+        final int gap = 13;
+        int y = castBarY + BAR_HEIGHT + gap;
+
+        float fraction = ClientSummonPowerState.fraction(partialTick);
+        PowerState state = ClientSummonPowerState.state();
+
+        graphics.fill(barX - 1, y - 1, barX + BAR_WIDTH + 1, y + height + 1, COLOR_BORDER);
+        graphics.fill(barX, y, barX + BAR_WIDTH, y + height, COLOR_TRACK);
+
+        float exact = fraction * BAR_WIDTH;
+        int whole = (int) exact;
+        float remainder = exact - whole;
+        if (whole > 0) {
+            graphics.fillGradient(barX, y, barX + whole, y + height,
+                    Palette.argb(SUMMON_HOT, 0.95F), Palette.argb(SUMMON_FILL, 0.95F));
+        }
+        // Same fractional leading column as the cast bar, so the edge glides rather than stepping.
+        if (remainder > 0.01F && whole < BAR_WIDTH) {
+            graphics.fill(barX + whole, y, barX + whole + 1, y + height,
+                    Palette.argb(SUMMON_FILL, remainder * 0.95F));
+        }
+
+        Component label = switch (state) {
+            case READY -> Component.literal("SUMMONING  READY");
+            case CASTING -> Component.literal("SUMMONING  \u2014  ARRIVING");
+            case COOLDOWN -> Component.literal("SUMMONING  " + ClientSummonPowerState.percent(partialTick) + "%");
+            case CHARGING -> Component.literal("SUMMONING  " + ClientSummonPowerState.percent(partialTick) + "%");
+        };
+        graphics.centeredText(font, label, centreX, y + height + 2, COLOR_SUMMON_LABEL);
+    }
+
+    /** Ember tones, matching the dragon's chat colour rather than the cyan ability palette. */
+    private static final int SUMMON_FILL = 0xC4521A;
+    private static final int SUMMON_HOT = 0xFF7A29;
+    private static final int COLOR_SUMMON_LABEL = 0xFFE8C9A8;
 
     /** Fractional part, always in 0..1 even for negative inputs. */
     private static float positiveFraction(float value) {

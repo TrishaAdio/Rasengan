@@ -7,6 +7,14 @@ procedural 3D animation.
 Everything that affects gameplay is decided by the server. Clients render, predict and
 interpolate, but they never decide whether the ability may be used.
 
+| key | ability | own POWER BAR | documented in |
+|---|---|---|---|
+| **`R`** | Rasengan | POWER BAR | this file |
+| **`G`** | Rasen Shuriken | POWER BAR (shared with Rasengan) | [Rasen Shuriken](#rasen-shuriken) |
+| **`L`** | Summoning Jutsu — brings in the boss dragon | POWER BAR — SUMMONING (independent) | [`SUMMONING.md`](SUMMONING.md) |
+
+The dragon itself is documented in [`DRAGON.md`](DRAGON.md). All three keys are remappable.
+
 ---
 
 ## 1. Loader, dependencies and exact versions
@@ -59,8 +67,8 @@ These are the things that changed most recently and that the code depends on:
 2. Install the **NeoForge 26.1.2.109** client profile from <https://neoforged.net>.
 3. Drop `rasengan-1.4.1.jar` into `.minecraft/mods/`.
 4. Launch the NeoForge 26.1.2 profile.
-5. Optionally rebind the ability key: **Options → Controls → Gameplay → "Cast Rasengan"**
-   (default **`R`**).
+5. Optionally rebind the ability keys under **Options → Controls → Gameplay**: "Cast Rasengan"
+   (default **`R`**), "Cast Rasen Shuriken" (default **`G`**), "Summoning Jutsu" (default **`L`**).
 
 ### Dedicated server
 
@@ -162,12 +170,31 @@ way always registers regardless of speed. Raising `speed` cannot cause tunnellin
 
 ### `/chargeit`
 
-Fills your POWER BAR to 100% instantly, skipping the timer.
+Fills a POWER BAR to 100% instantly, skipping the timer.
 
-| Form | Requires |
-|---|---|
-| `/chargeit` | Caller must be in **Creative mode**. No permission level needed. |
-| `/chargeit <player>` | Gamemaster permission (vanilla's `/gamemode` tier), **and** the *target* must be in Creative. |
+| Form | Bar | Requires |
+|---|---|---|
+| `/chargeit` | POWER BAR | Caller must be in **Creative mode**. No permission level needed. |
+| `/chargeit <player>` | POWER BAR | Gamemaster permission (vanilla's `/gamemode` tier), **and** the *target* must be in Creative. |
+| `/chargeit summon` | POWER BAR — SUMMONING | Caller must be in **Creative mode**. |
+| `/chargeit summon <player>` | POWER BAR — SUMMONING | Gamemaster permission, **and** the *target* must be in Creative. |
+
+The two bars are independent, so the two forms are too — **`/chargeit` never touches the summoning
+bar and `/chargeit summon` never touches the cast bar.** Both measured.
+
+`/chargeit summon` **refuses mid-cinematic** rather than cancelling the sequence. Cancelling would
+leave nearby clients drawing a summoning circle that never produces a dragon, and the timeline drives
+the bar back to `CHARGING` at tick 100 anyway — so the granted charge would silently evaporate a few
+ticks later. The sequence is 5 seconds; waiting it out is the honest answer.
+
+It does not bypass the one-dragon-per-player rule either, since that rule is about the dragon's life
+rather than the bar. Charging while a dragon is alive is allowed, and says so, rather than leaving the
+player to wonder why **`L`** does nothing.
+
+> **Grammar wrinkle, recorded deliberately.** `summon` is a literal node beside the `<player>`
+> argument node, and Brigadier matches literals first, so a player actually *named* "summon" cannot be
+> targeted as `/chargeit summon` — `/chargeit summon summon` still reaches them. Accepted as cheaper
+> than a clumsier grammar like `/chargeit bar <cast|summon>`.
 
 This is server-authoritative by construction: Brigadier parses and executes commands on the server,
 and the game mode is read from the server's own copy of the player. There is no packet and no client

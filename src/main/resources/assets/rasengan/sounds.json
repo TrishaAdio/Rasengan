@@ -34,5 +34,23 @@
         "stream": false
       }
     ]
+  },
+  "summon_buildup": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rasengan:summon_buildup",
+        "stream": false
+      }
+    ]
+  },
+  "summon_reveal": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "rasengan:summon_reveal",
+        "stream": false
+      }
+    ]
   }
 }

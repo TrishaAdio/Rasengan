@@ -35,22 +35,62 @@ public final class RasenganKeys {
             GLFW.GLFW_KEY_G,
             KeyMapping.Category.GAMEPLAY);
 
+    /**
+     * Summoning Jutsu, default {@code L}.
+     *
+     * <p>Same contract as the cast keys: it sends a fieldless request and starts nothing locally. The
+     * cinematic only begins when the server's {@code SummonStart} arrives, so a client cannot show
+     * itself a summon the server refused.
+     */
+    public static final KeyMapping SUMMON = new KeyMapping(
+            "key.rasengan.summon",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_L,
+            KeyMapping.Category.GAMEPLAY);
+
     /** Minimum client ticks between outgoing activation packets. */
     private static final int SEND_INTERVAL_TICKS = 5;
 
     private static int cooldown;
+
+    /**
+     * Separate anti-spam counter for the summon key.
+     *
+     * <p>Deliberately not shared with {@link #cooldown}. Sharing one counter would mean a press of L
+     * swallowed the next quarter-second of R and G presses, and vice versa - two unrelated abilities
+     * silently eating each other's input. The counter exists to stop packet flooding on one key, not
+     * to serialise the whole ability set.
+     */
+    private static int summonCooldown;
 
     private RasenganKeys() {}
 
     public static void register(RegisterKeyMappingsEvent event) {
         event.register(ACTIVATE);
         event.register(ACTIVATE_SHURIKEN);
+        event.register(SUMMON);
     }
 
     /** Called once per client tick. */
     public static void tick(Minecraft minecraft) {
         if (cooldown > 0) {
             cooldown--;
+        }
+        if (summonCooldown > 0) {
+            summonCooldown--;
+        }
+
+        boolean summonRequested = false;
+        while (SUMMON.consumeClick()) {
+            summonRequested = true;
+        }
+        // Not an early return: a player who taps L and R in the same tick meant both, and the summon
+        // key must not consume the cast press.
+        if (summonRequested && minecraft.player != null && minecraft.level != null
+                && summonCooldown <= 0) {
+            summonCooldown = SEND_INTERVAL_TICKS;
+            ClientPacketDistributor.sendToServer(
+                    dev.rasengan.network.RasenganSummonPayloads.SummonActivate.INSTANCE);
         }
 
         AbilityType requested = null;
