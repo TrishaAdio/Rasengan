@@ -20,9 +20,15 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.BossEvent;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
+import net.minecraft.world.entity.ai.goal.Goal;
+import org.jspecify.annotations.Nullable;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.control.FlyingMoveControl;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
@@ -126,6 +132,41 @@ public class DragonEntity extends Monster implements GeoEntity {
     private static final EntityDataAccessor<Integer> DATA_ENTRANCE_TOTAL =
             SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.INT);
 
+    /**
+     * Spawn damage-immunity, replicated purely so the client can show it.
+     *
+     * <p>The authoritative check is {@link #isInvulnerableTo}, which reads the server-side counter -
+     * this flag is a mirror for rendering and must never be the thing that decides whether damage
+     * lands.
+     */
+    private static final EntityDataAccessor<Boolean> DATA_IMMUNE =
+            SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.BOOLEAN);
+
+    /** Ride phase; see {@link DragonRideControl}. Replicated for animation and the bank angle. */
+    private static final EntityDataAccessor<Byte> DATA_RIDE_PHASE =
+            SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.BYTE);
+
+    /**
+     * {@code tickCount} at which the current rider mounted, or -1.
+     *
+     * <p>Replicated as a single absolute value rather than as a counting-down blend, so it costs one
+     * datawatcher write per mount instead of one per tick - and, more importantly, so both sides compute
+     * the same blend position from the same clock. A counter ticked independently on each side would
+     * drift, and the rider would be drawn part-way up the head on one screen and on top of it on another.
+     */
+    private static final EntityDataAccessor<Integer> DATA_MOUNT_TICK =
+            SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.INT);
+
+    /**
+     * Bank angle in degrees, replicated for the renderer.
+     *
+     * <p>Entities have no roll field, so this is carried separately and applied by
+     * {@code DragonRenderer}. It deliberately does <em>not</em> affect the rider's anchor - see
+     * {@link dev.rasengan.DragonAnchor#basis}.
+     */
+    private static final EntityDataAccessor<Float> DATA_BANK =
+            SynchedEntityData.defineId(DragonEntity.class, EntityDataSerializers.FLOAT);
+
     private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
     private final ServerBossEvent bossEvent = new ServerBossEvent(
@@ -136,6 +177,31 @@ public class DragonEntity extends Monster implements GeoEntity {
 
     private int breathCooldown;
     private int breathTicksLeft;
+
+    /**
+     * Length of the mount step-up blend, in ticks.
+     *
+     * <p>8 ticks = 0.4 s. Long enough to read as stepping up, short enough that a player who mounted
+     * mid-combat is not left drifting.
+     */
+    public static final int MOUNT_BLEND_TICKS = 8;
+
+    /**
+     * Ticks of spawn damage-immunity left. Server-side and authoritative.
+     *
+     * <p>Counted down once per tick in {@link #tick()} and never re-armed except by
+     * {@link #beginSpawnGrace}, which is called exactly once per summon from the reveal. Combined with
+     * the one-dragon-per-player rule, there is no path by which a player can refresh it.
+     */
+    private int spawnImmunityTicks;
+
+    /** Ticks the dragon stays grounded at the summon point. Cut short by a launch. */
+    private int perchTicks;
+
+    /** Launch progress, 0 while not launching. */
+    private int launchTicks;
+
+    private final DragonRideControl.InputTracker rideInput = new DragonRideControl.InputTracker();
 
     /**
      * Who summoned this dragon, if anyone.
@@ -206,6 +272,10 @@ public class DragonEntity extends Monster implements GeoEntity {
         builder.define(DATA_FLIGHT_STATE, STATE_GROUND_IDLE);
         builder.define(DATA_HIDDEN, false);
         builder.define(DATA_ENTRANCE_TOTAL, 0);
+        builder.define(DATA_IMMUNE, false);
+        builder.define(DATA_RIDE_PHASE, DragonRideControl.PHASE_NONE);
+        builder.define(DATA_BANK, 0.0F);
+        builder.define(DATA_MOUNT_TICK, -1);
     }
 
     public boolean isFlyingEnabled() {
@@ -280,6 +350,246 @@ public class DragonEntity extends Monster implements GeoEntity {
         return this.entranceTicks > 0;
     }
 
+    // ------------------------------------------------------------------
+    // Spawn grace: grounded, and immune to everything
+    // ------------------------------------------------------------------
+
+    /**
+     * Starts the post-summon grace period. Called once, from the reveal.
+     *
+     * <p>Two separate clocks, deliberately:
+     * <ul>
+     *   <li><b>Immunity</b> runs the full configured duration no matter what. The guarantee is
+     *       "zero damage for exactly 10 seconds after the summon", and a rider launching early must not
+     *       be able to shorten it.</li>
+     *   <li><b>The grounded perch</b> ends at the same moment <em>or</em> when the rider launches,
+     *       whichever comes first. Holding a player who has just double-tapped W on the ground for the
+     *       remaining seconds would read as the mount being broken, so a launch cuts the hold short.
+     *       The alternative - deferring the launch until the grace ends - was rejected for exactly that
+     *       reason.</li>
+     * </ul>
+     */
+    public void beginSpawnGrace() {
+        int ticks = RasenganConfig.mountSpawnImmunityTicks();
+        this.spawnImmunityTicks = ticks;
+        this.perchTicks = ticks;
+        this.entityData.set(DATA_IMMUNE, ticks > 0);
+    }
+
+    /** Ticks of spawn immunity remaining. Exposed for the verification harness. */
+    public int spawnImmunityTicks() {
+        return spawnImmunityTicks;
+    }
+
+    /** Ticks of grounded perch remaining. */
+    public int perchTicks() {
+        return perchTicks;
+    }
+
+    public boolean isSpawnImmune() {
+        return spawnImmunityTicks > 0;
+    }
+
+    /**
+     * The real damage gate.
+     *
+     * <p>Overriding {@code isInvulnerableTo} puts the check on the path {@code hurtServer} consults
+     * before anything else, so it blocks every source without exception - players, mobs, fire, fall,
+     * lava, {@code /damage}, the void. A large temporary health pool would not: that is not immunity,
+     * it is a bigger number, and it still shows damage numbers, still triggers hurt animations, still
+     * lets a big enough hit through.
+     *
+     * <p>{@code isInvulnerableToBase} is still consulted via {@code super}, so the vanilla rules
+     * (creative-mode damage, {@code DamageTypeTags.BYPASSES_INVULNERABILITY}) are unchanged outside the
+     * grace window.
+     */
+    @Override
+    public boolean isInvulnerableTo(ServerLevel level, DamageSource source) {
+        if (spawnImmunityTicks > 0) {
+            return true;
+        }
+        // A dragon that has not been revealed yet is also untouchable; see beginHiddenEntrance.
+        if (isHiddenForSummon()) {
+            return true;
+        }
+        return super.isInvulnerableTo(level, source);
+    }
+
+    // ------------------------------------------------------------------
+    // Mounting
+    // ------------------------------------------------------------------
+
+    /**
+     * Whether {@code player} is allowed to mount.
+     *
+     * <p>Ownership only - this says nothing about where they are looking or how far away they are, which
+     * {@link DragonMountManager} checks separately. Kept apart so the refusal message can be specific.
+     */
+    public boolean mayMount(Player player) {
+        if (!RasenganConfig.SERVER.mountEnabled.get()) {
+            return false;
+        }
+        if (!RasenganConfig.SERVER.mountSummonerOnly.get()) {
+            return true;
+        }
+        return summonerUuid != null && summonerUuid.equals(player.getUUID());
+    }
+
+    /** Only ever one rider, and only a player. */
+    @Override
+    protected boolean canAddPassenger(Entity passenger) {
+        return getPassengers().isEmpty() && passenger instanceof Player;
+    }
+
+    /** The rider, or null. */
+    @Nullable
+    public Player rider() {
+        return getFirstPassenger() instanceof Player player ? player : null;
+    }
+
+    public byte ridePhase() {
+        return this.entityData.get(DATA_RIDE_PHASE);
+    }
+
+    private void setRidePhase(byte phase) {
+        if (ridePhase() != phase) {
+            this.entityData.set(DATA_RIDE_PHASE, phase);
+        }
+    }
+
+    /** Bank angle in degrees, for the renderer. */
+    public float bankAngle() {
+        return this.entityData.get(DATA_BANK);
+    }
+
+    /**
+     * Where the rider's feet go.
+     *
+     * <p>Delegates to {@link dev.rasengan.DragonAnchor}, the COMMON class both sides share, so the
+     * server's authoritative placement and the client's rendering cannot disagree. Called every tick
+     * from {@code positionRider}, and the normal entity render path interpolates between ticks - which
+     * is what makes the rider track the head smoothly rather than in 20 Hz steps.
+     *
+     * <p>The animation phase comes from {@code tickCount}, matching the phase forced onto the GeckoLib
+     * controller in {@link #registerControllers}. Without that forcing the rendered head and this
+     * calculation would drift apart per client.
+     */
+    @Override
+    protected Vec3 getPassengerAttachmentPoint(Entity passenger, EntityDimensions dimensions,
+                                               float scale) {
+        boolean airborne = !onGround();
+        Vec3 anchor = dev.rasengan.DragonAnchor.riderOffset(
+                getYRot(), getXRot(), (float) tickCount, airborne);
+
+        // ---- the step-up blend ----
+        //
+        // Without this, mounting teleports the player from the ground to 4.6 blocks up in a single tick.
+        // The blend eases them from the base of the head up onto the plate on a smoothstep, so it reads
+        // as climbing rather than as a snap.
+        //
+        // The start point is derived, not remembered: the head's horizontal position at the dragon's own
+        // foot height. That is deterministic on both sides from replicated state alone, where the
+        // player's actual pre-mount position would have had to be captured and synced.
+        int mountTick = this.entityData.get(DATA_MOUNT_TICK);
+        if (mountTick < 0) {
+            return anchor;
+        }
+        int elapsed = tickCount - mountTick;
+        if (elapsed < 0 || elapsed >= MOUNT_BLEND_TICKS) {
+            return anchor;
+        }
+        float k = (elapsed + 1.0F) / MOUNT_BLEND_TICKS;
+        float eased = k * k * (3.0F - 2.0F * k);
+        Vec3 from = new Vec3(anchor.x, 0.0D, anchor.z);
+        return from.add(anchor.subtract(from).scale(eased));
+    }
+
+    /**
+     * Mid-air dismount: the rider becomes an ordinary falling entity.
+     *
+     * <p>Fall damage applies by default - stepping off a flying mount at altitude is exactly as
+     * dangerous as stepping off anything else that high, and making it free would turn the dragon into
+     * a no-cost elevator. {@code [mount] dismount_fall_damage = false} waives it by resetting the fall
+     * distance, which is the honest way to do it: no damage is "absorbed", the fall simply is not
+     * counted.
+     */
+    @Override
+    protected void removePassenger(Entity passenger) {
+        boolean wasFlying = ridePhase() == DragonRideControl.PHASE_FLYING
+                || ridePhase() == DragonRideControl.PHASE_LAUNCHING;
+        super.removePassenger(passenger);
+
+        rideInput.reset();
+        launchTicks = 0;
+        setRidePhase(DragonRideControl.PHASE_NONE);
+        this.entityData.set(DATA_BANK, 0.0F);
+        this.entityData.set(DATA_MOUNT_TICK, -1);
+
+        if (wasFlying && !RasenganConfig.SERVER.mountDismountFallDamage.get()) {
+            passenger.resetFallDistance();
+        }
+        // Hand the dragon back to its own AI. The goals were never removed, only denied their control
+        // flags, so this is a single flip rather than a rebuild - and it reverts to the standalone
+        // flight AI that already exists, with no special case for "was ridden".
+        if (!level().isClientSide()) {
+            suspendAi(perchTicks > 0);
+            setNoGravity(RasenganConfig.SERVER.dragonCanFly.get());
+        }
+    }
+
+    /**
+     * Suspends or resumes the dragon's own AI without touching {@code NoAi}.
+     *
+     * <p>Idempotent and cheap: the flag setters are no-ops when already in the requested state, so this
+     * can be called every tick.
+     */
+    private void suspendAi(boolean suspend) {
+        this.goalSelector.setControlFlag(Goal.Flag.MOVE, !suspend);
+        this.goalSelector.setControlFlag(Goal.Flag.LOOK, !suspend);
+        this.targetSelector.setControlFlag(Goal.Flag.TARGET, !suspend);
+        if (getMoveControl() instanceof DragonFlightMoveControl flight) {
+            flight.setSuspended(suspend);
+        }
+    }
+
+    /** Called by the mount manager once a mount is authorised and the rider is aboard. */
+    public void onMounted() {
+        rideInput.reset();
+        launchTicks = 0;
+        this.entityData.set(DATA_MOUNT_TICK, tickCount);
+        // Perched is decided by the grace clock first and only then by contact with the ground. Using
+        // onGround() alone meant a rider who mounted in the first few ticks of the grace - before the
+        // dragon had finished descending the 2 blocks it arrives above the seal - was classified as
+        // airborne, which put the ride straight into PHASE_FLYING and left the double-tap launch
+        // unreachable. The grace clock is the authoritative statement that it is grounded.
+        setRidePhase(perchTicks > 0 || onGround()
+                ? DragonRideControl.PHASE_PERCHED
+                : DragonRideControl.PHASE_FLYING);
+    }
+
+    /** Ticks since the current rider mounted, or -1 if nobody is aboard. */
+    public int ticksSinceMount() {
+        int mountTick = this.entityData.get(DATA_MOUNT_TICK);
+        return mountTick < 0 ? -1 : tickCount - mountTick;
+    }
+
+    /**
+     * Clears ride state when the rider vanished without dismounting.
+     *
+     * <p>Belt and braces for a disconnect: {@code stopRiding} normally routes through
+     * {@link #removePassenger}, but if the passenger list was emptied some other way the dragon would be
+     * left in {@code PHASE_FLYING} with its AI suspended and no one at the controls.
+     */
+    public void onRiderLost() {
+        rideInput.reset();
+        launchTicks = 0;
+        setRidePhase(DragonRideControl.PHASE_NONE);
+        this.entityData.set(DATA_BANK, 0.0F);
+        this.entityData.set(DATA_MOUNT_TICK, -1);
+        suspendAi(perchTicks > 0);
+        setNoGravity(RasenganConfig.SERVER.dragonCanFly.get());
+    }
+
     public byte flightState() {
         return this.entityData.get(DATA_FLIGHT_STATE);
     }
@@ -322,6 +632,18 @@ public class DragonEntity extends Monster implements GeoEntity {
      */
     @Override
     public void travel(Vec3 input) {
+        // While perched, fall and stay down. The flying branch below applies no gravity at all - it is
+        // pure velocity integration - so a dragon left on it simply hovers at whatever height it arrived
+        // at. The spawn grace is specified as the dragon LANDING and sitting in place, and it arrives 2
+        // blocks above the seal, so it has to be handed to the normal walking path to cover that gap.
+        // Without this it hovered, onGround() stayed false, and a rider mounting during the grace was
+        // classified as already airborne - which silently disabled the launch.
+        // A launch sets perchTicks to 0, so this reverts to the flying path on the same tick the climb
+        // begins - no special case needed for "perched but launching".
+        if (perchTicks > 0) {
+            super.travel(input);
+            return;
+        }
         if (isFlyingEnabled() && !onGround() && !isInWater()) {
             move(net.minecraft.world.entity.MoverType.SELF, getDeltaMovement());
             // Near-unity: the move control's lerp is the intended smoothing. This exists only so a
@@ -474,8 +796,161 @@ public class DragonEntity extends Monster implements GeoEntity {
             // point on the reveal tick, at the configured volume. A second play of the same sample
             // from the entity would overlap itself and ignore sound_volume.
         }
+        tickSpawnGrace();
+        tickRide((ServerLevel) level());
         updateFlightState();
         tickBreath((ServerLevel) level());
+    }
+
+    /**
+     * Counts down the spawn grace.
+     *
+     * <p>Immunity and the perch are decremented independently so that a launch can end the perch
+     * without touching the immunity. The replicated mirror is only updated on the transition, not every
+     * tick, so this costs one datawatcher write per summon rather than 200.
+     */
+    private void tickSpawnGrace() {
+        if (spawnImmunityTicks > 0) {
+            spawnImmunityTicks--;
+            if (spawnImmunityTicks == 0) {
+                this.entityData.set(DATA_IMMUNE, false);
+            }
+        }
+        if (perchTicks > 0) {
+            perchTicks--;
+            if (perchTicks == 0) {
+                onPerchEnded();
+            }
+        }
+    }
+
+    /**
+     * Takes off at the end of the grounded grace.
+     *
+     * <p>Restoring flight is not just a matter of clearing a flag. The perch deliberately turns gravity
+     * back on so the dragon lands, and {@link #travel} routes a grounded dragon through the normal walking
+     * path - so on the tick the grace ends it is sitting on the ground with {@code onGround()} true, and
+     * the flying branch is unreachable because that branch requires {@code !onGround()}. Nothing would
+     * ever lift it: the harness measured 9.53 blocks of travel in 99 ticks against a 0.51 b/t cruise,
+     * because it was walking.
+     *
+     * <p>So the grace ends with an actual takeoff - gravity off per config, plus one upward impulse large
+     * enough to break ground contact and hand the dragon to its flight control.
+     */
+    private void onPerchEnded() {
+        if (rider() != null) {
+            return; // a rider owns it; they launch when they choose to
+        }
+        setNoAi(false);
+        boolean canFly = RasenganConfig.SERVER.dragonCanFly.get();
+        setNoGravity(canFly);
+        if (canFly) {
+            setDeltaMovement(getDeltaMovement().add(0.0D, 0.45D, 0.0D));
+            this.entityData.set(DATA_FLIGHT_STATE, STATE_FLAP);
+        }
+    }
+
+    /**
+     * Rider-driven movement, or the grounded perch.
+     *
+     * <p>Everything here runs on the server and nowhere else. See {@link DragonRideControl} for why that
+     * is sufficient rather than merely intended: vanilla structurally refuses to let the riding client
+     * drive a vehicle whose {@code getControllingPassenger()} is not a {@code Mob}, which a player never
+     * is, so no {@code ServerboundMoveVehiclePacket} is ever sent or accepted for this entity.
+     */
+    private void tickRide(ServerLevel level) {
+        Player rider = rider();
+
+        // ---- perched: hold still at the summon point ----
+        if (perchTicks > 0 && ridePhase() != DragonRideControl.PHASE_LAUNCHING
+                && ridePhase() != DragonRideControl.PHASE_FLYING) {
+            setNoGravity(false);
+            setDeltaMovement(getDeltaMovement().multiply(0.0D, 1.0D, 0.0D));
+            if (rider != null) {
+                setRidePhase(DragonRideControl.PHASE_PERCHED);
+            }
+        }
+
+        if (rider == null) {
+            if (ridePhase() != DragonRideControl.PHASE_NONE) {
+                setRidePhase(DragonRideControl.PHASE_NONE);
+                this.entityData.set(DATA_BANK, 0.0F);
+            }
+            suspendAi(perchTicks > 0);
+            return;
+        }
+
+        // The rider owns the velocity while aboard, so the AI has to stop competing for it.
+        //
+        // Done with control flags and a suspended move control, NOT with setNoAi(true). NoAi makes
+        // Mob.isEffectiveAi() false, and LivingEntity.aiStep only calls travel() when isEffectiveAi() -
+        // so a NoAi dragon would have the rider's velocity written and then never integrated, and would
+        // hang motionless in the air. This was worth checking rather than assuming; it is the same trap
+        // recorded for the flight harness.
+        suspendAi(true);
+
+        if (!(rider instanceof ServerPlayer serverRider)) {
+            return;
+        }
+
+        // ---- launch detection, server-side ----
+        rideInput.tick(serverRider.getLastClientInput(),
+                RasenganConfig.SERVER.mountDoubleTapWindowTicks.get());
+        boolean launchRequested = rideInput.consumeLaunch();
+
+        byte phase = ridePhase();
+        if (launchRequested && phase == DragonRideControl.PHASE_PERCHED) {
+            phase = DragonRideControl.PHASE_LAUNCHING;
+            launchTicks = 0;
+            // A launch cuts the grounded hold short. Immunity is untouched - see beginSpawnGrace.
+            perchTicks = 0;
+            setNoGravity(RasenganConfig.SERVER.dragonCanFly.get());
+            setRidePhase(phase);
+            level.playSound(null, getX(), getY(), getZ(),
+                    net.minecraft.sounds.SoundEvents.ENDER_DRAGON_FLAP, SoundSource.HOSTILE,
+                    1.4F, 0.7F);
+        }
+        // A second double-tap while already airborne is IGNORED. The alternative - an extra vertical
+        // boost - was rejected because the launch is a scripted eased climb that overrides steering, so
+        // re-entering it mid-flight would wrench the camera away from a player who was mid-turn. Holding
+        // jump gives a controllable climb instead, which is the same capability without the hijack.
+
+        switch (phase) {
+            case DragonRideControl.PHASE_LAUNCHING -> tickLaunch();
+            case DragonRideControl.PHASE_FLYING -> tickPlayerFlight(serverRider);
+            default -> { }
+        }
+    }
+
+    /** The eased launch climb. Hands over to player steering when it completes. */
+    private void tickLaunch() {
+        int total = RasenganConfig.SERVER.mountLaunchTicks.get();
+        double height = RasenganConfig.SERVER.mountLaunchHeight.get();
+
+        double vy = DragonRideControl.launchVerticalSpeed(launchTicks, total, height);
+        Vec3 velocity = getDeltaMovement();
+        // Blend rather than assign, so the climb starts from whatever the dragon was already doing.
+        setDeltaMovement(velocity.x * 0.86D, vy, velocity.z * 0.86D);
+        this.entityData.set(DATA_FLIGHT_STATE, STATE_FLAP);
+
+        launchTicks++;
+        if (launchTicks >= total) {
+            launchTicks = 0;
+            setRidePhase(DragonRideControl.PHASE_FLYING);
+        }
+    }
+
+    /** Elytra-style steering under the rider's look direction. */
+    private void tickPlayerFlight(ServerPlayer rider) {
+        setNoGravity(true);
+        float yawDelta = DragonRideControl.steer(this, rider, rider.getLastClientInput());
+
+        float bank = DragonRideControl.bankFor(yawDelta,
+                (float) (double) RasenganConfig.SERVER.mountTurnRateDegrees.get(),
+                (float) (double) RasenganConfig.SERVER.mountBankLimitDegrees.get());
+        // Ease the bank toward its target rather than snapping to it, so it rolls in and out.
+        float current = bankAngle();
+        this.entityData.set(DATA_BANK, Mth.lerp(0.12F, current, bank));
     }
 
     /** Applies config on first server tick so edits land without needing a rebuild. */
@@ -528,12 +1003,29 @@ public class DragonEntity extends Monster implements GeoEntity {
     protected void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output);
         output.putInt("BreathCooldown", breathCooldown);
+        // ---- Summoner identity, persisted ----
+        //
+        // Previously NOT written, which had two consequences. The one-dragon-per-player limit lived
+        // only in ServerSummonManager's in-memory map, so a restart let a player summon a second
+        // dragon while their first was still alive in the world - and nothing could rebuild the link,
+        // because the entity had not kept it either. Now that mounting is restricted to the summoner,
+        // losing it would also hand their dragon to nobody: after a restart it would be unrideable.
+        if (summonerUuid != null) {
+            output.store("Summoner", net.minecraft.core.UUIDUtil.CODEC, summonerUuid);
+        }
+        output.putInt("SpawnImmunity", spawnImmunityTicks);
+        output.putInt("PerchTicks", perchTicks);
     }
 
     @Override
     protected void readAdditionalSaveData(ValueInput input) {
         super.readAdditionalSaveData(input);
         this.breathCooldown = input.getIntOr("BreathCooldown", 0);
+        this.summonerUuid = input.read("Summoner", net.minecraft.core.UUIDUtil.CODEC).orElse(null);
+        this.spawnImmunityTicks = input.getIntOr("SpawnImmunity", 0);
+        this.perchTicks = input.getIntOr("PerchTicks", 0);
+        // Replicate the restored immunity so a client that loads a freshly-immune dragon agrees.
+        this.entityData.set(DATA_IMMUNE, spawnImmunityTicks > 0);
     }
 
     /** Summon-only: nothing should ever remove it for being far from a player. */
@@ -703,12 +1195,26 @@ public class DragonEntity extends Monster implements GeoEntity {
             // controller's transition as a stage, so the animation's own t=0 sits transitionTicks
             // later - setAnimationTime(t) maps through the current stage and cancels that out.
             int total = dragon.entranceTotalTicks();
-            if (total > 0 && animation == ANIM_FLY) {
-                float age = (float) test.renderState().getAnimatableAge();
-                if (age < total) {
-                    float phase = dev.rasengan.SummonTimeline.entranceWingPhase(age);
-                    test.controller().setAnimationTime(phase / 20.0D);
-                }
+            float age = (float) test.renderState().getAnimatableAge();
+            if (total > 0 && animation == ANIM_FLY && age < total) {
+                float phase = dev.rasengan.SummonTimeline.entranceWingPhase(age);
+                test.controller().setAnimationTime(phase / 20.0D);
+            } else if (animation == ANIM_FLY || animation == ANIM_IDLE) {
+                // ---- outside the entrance, the phase is STILL forced ----
+                //
+                // Originally this only applied during the arrival. It now applies whenever the fly or
+                // idle cycle is playing, because dev.rasengan.DragonAnchor computes the rider's standing
+                // point from a table indexed by this same phase. If GeckoLib were left to free-run, the
+                // phase would be anchored to the first frame each client happened to render the dragon,
+                // and the server - which has no GeckoLib state at all - could not know it. The rider
+                // would then be drawn floating above or sunk into the head by up to the full 1.23-block
+                // bob, differently for every observer.
+                //
+                // Forcing it costs nothing: a phase derived from entity age IS a free run, just with an
+                // origin everyone agrees on.
+                boolean airborne = animation == ANIM_FLY;
+                float phase = dev.rasengan.DragonAnchor.phase(age, airborne);
+                test.controller().setAnimationTime(phase / 20.0D);
             }
             return result;
         }));

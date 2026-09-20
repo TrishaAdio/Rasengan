@@ -451,6 +451,10 @@ public final class ServerSummonManager {
         }
 
         dragon.revealFromSummon();
+        // Grounded and untouchable for the configured grace. Started here, on the reveal, so the ten
+        // seconds are ten seconds of the player being able to see and reach it - not ten seconds that
+        // began while it was still hidden under the smoke.
+        dragon.beginSpawnGrace();
         ACTIVE_DRAGONS.put(player.getUUID(), dragon.getUUID());
 
         Vec3 at = dragon.position();
@@ -508,10 +512,19 @@ public final class ServerSummonManager {
     // One-dragon-per-player bookkeeping
     // ------------------------------------------------------------------
 
+    /**
+     * Whether this player already has a live dragon.
+     *
+     * <p>The in-memory map is a fast path, not the source of truth. It is cleared on
+     * {@code ServerStoppingEvent}, so before {@code summonerUuid} was persisted a restart let a player
+     * summon a second dragon while their first was still alive in the world - and nothing could rebuild
+     * the link, because the entity had not kept it either. Now the entity persists its summoner and this
+     * falls back to scanning for one whose {@code summoner()} matches, so the limit survives a restart.
+     */
     public static boolean hasLiveDragon(ServerPlayer player) {
         UUID dragonId = ACTIVE_DRAGONS.get(player.getUUID());
         if (dragonId == null) {
-            return false;
+            return scanForOwnedDragon(player);
         }
         Entity entity = ((ServerLevel) player.level()).getEntity(dragonId);
         if (entity instanceof DragonEntity dragon && dragon.isAlive()) {
@@ -525,6 +538,30 @@ public final class ServerSummonManager {
             }
         }
         ACTIVE_DRAGONS.remove(player.getUUID());
+        return scanForOwnedDragon(player);
+    }
+
+    /**
+     * Scans loaded levels for a dragon this player summoned, rebuilding the map entry if found.
+     *
+     * <p>Only reached when the fast path has no answer, which after startup is once per summon attempt
+     * per player. It walks loaded entities only - a dragon in an unloaded chunk cannot be found, which is
+     * the honest limit of this approach and is recorded in {@code SUMMONING.md}.
+     */
+    private static boolean scanForOwnedDragon(ServerPlayer player) {
+        MinecraftServer server = player.level().getServer();
+        if (server == null) {
+            return false;
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            for (DragonEntity dragon : level.getEntities(
+                    net.minecraft.world.level.entity.EntityTypeTest.forClass(DragonEntity.class),
+                    candidate -> candidate.isAlive()
+                            && player.getUUID().equals(candidate.summoner()))) {
+                ACTIVE_DRAGONS.put(player.getUUID(), dragon.getUUID());
+                return true;
+            }
+        }
         return false;
     }
 
@@ -567,6 +604,17 @@ public final class ServerSummonManager {
     /** Exposed for the verification harness. */
     public static int activeDragonCount() {
         return ACTIVE_DRAGONS.size();
+    }
+
+    /**
+     * Empties the in-memory dragon map without touching the world.
+     *
+     * <p>Exists so the harness can reproduce the restart case without restarting: this is precisely what
+     * {@code ServerStoppingEvent} does to the map, so if the one-per-player limit still holds afterwards
+     * it is holding on the persisted {@code summonerUuid} rather than on the map.
+     */
+    public static void clearActiveDragonsForTest() {
+        ACTIVE_DRAGONS.clear();
     }
 
     /** Number of cinematics currently running. Exposed for the verification harness. */

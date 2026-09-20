@@ -42,6 +42,9 @@ public final class RasenganClient {
         gameBus.addListener(SummonCinematic::onComputeFov);
         gameBus.addListener(SummonCinematic::onDetachedDistance);
         gameBus.addListener(RasenganClient::onClientTick);
+        // Pre, not Post: the mount click has to be consumed before Minecraft.handleKeybinds() turns it
+        // into an attack swing.
+        gameBus.addListener(RasenganClient::onClientTickPre);
         gameBus.addListener(RasenganClient::onLoggingOut);
         gameBus.addListener(RasenganClient::onLevelUnload);
 
@@ -145,6 +148,10 @@ public final class RasenganClient {
                 sprites -> new SmokeParticle.Provider(sprites, SmokeParticle.Style.MOTE));
         event.registerSpriteSet(RasenganParticles.FEAR.get(),
                 sprites -> new SmokeParticle.Provider(sprites, SmokeParticle.Style.FEAR));
+    }
+
+    private static void onClientTickPre(ClientTickEvent.Pre event) {
+        RasenganMountInput.tick(Minecraft.getInstance());
     }
 
     private static void onClientTick(ClientTickEvent.Post event) {

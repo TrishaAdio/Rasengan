@@ -52,6 +52,7 @@ public final class Rasengan {
         ServerCastManager.register(gameBus);
         dev.rasengan.server.ServerSummonManager.register(gameBus);
         dev.rasengan.server.DragonFearManager.register(gameBus);
+        dev.rasengan.server.DragonMountManager.register(gameBus);
         gameBus.addListener(Rasengan::registerCommands);
         gameBus.addListener(Rasengan::registerReloadListeners);
         gameBus.addListener(Rasengan::onServerStopping);
@@ -137,6 +138,16 @@ public final class Rasengan {
                 dev.rasengan.network.RasenganSummonPayloads.SummonActivate.CODEC,
                 (payload, context) ->
                         dev.rasengan.server.ServerSummonManager.onActivateRequest(context));
+
+        // ---- Mounting ----
+        registrar.playToServer(
+                dev.rasengan.network.RasenganMountPayloads.MountRequest.TYPE,
+                dev.rasengan.network.RasenganMountPayloads.MountRequest.CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.player() instanceof net.minecraft.server.level.ServerPlayer player) {
+                        dev.rasengan.server.DragonMountManager.tryMount(player);
+                    }
+                }));
     }
 
     /**

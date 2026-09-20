@@ -51,7 +51,7 @@ emit() {
   # 0..8 setup, summon at 8, end at 78, fear expires ~180, interruption ~194,
   # teardown at 199 ticks. Plus the 140-tick fear duration that has to run out inside that.
   # ~200 ticks = 10s; 60s is a generous margin for a loaded server.
-  sleep 60
+  sleep 95
   echo "say MARK_RUN_DONE"
   sleep 2
 

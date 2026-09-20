@@ -384,6 +384,19 @@ public final class SummonAudit {
         double maxFleeDistance;
         DragonEntity interruptedDragon;
 
+        // ---- mount / ride ----
+        int mountSummonTick = -1;
+        int graceStartTick = -1;
+        int mountedTick = -1;
+        int dismountTick = -1;
+        double mountY;
+        double maxClimbY;
+        final List<Double> launchSamples = new ArrayList<>();
+        int damageAttempts;
+        int damageLanded;
+        int firstDamageTick = -1;
+        int lastBlockedTick = -1;
+
         Vec3 firstDragonPos;
         Vec3 lastDragonPos;
         double pathLength;
@@ -718,6 +731,15 @@ public final class SummonAudit {
                 announces++;
             }
         }
+        // Only accounted for the FIRST summon. The mount phase deliberately summons a second dragon, and
+        // its awakening line is correct but arrives long after s.revealTick was recorded for the first -
+        // so the "fires on the reveal tick" assertion would compare against a stale tick and fail a
+        // working announcement. The once-per-summon guarantee is already established above.
+        if (s.mountSummonTick > 0) {
+            s.summoner.clear();
+            s.observer.clear();
+            announces = 0;
+        }
         if (announces > 0) {
             s.announceCount += announces;
             List<Component> observerLines = s.observer.chat.stream()
@@ -860,7 +882,13 @@ public final class SummonAudit {
         }
 
         // ---- flight watch: does it hand over to the normal AI? ----
-        if (s.endTick > 0 && s.t > s.endTick + 3 && s.t <= s.endTick + 103) {
+        //
+        // Deliberately delayed past the spawn grace. The dragon is now held grounded and immune for 10
+        // seconds after the reveal, so the old window - which started 3 ticks after the cinematic - was
+        // measuring the perch and reporting 0.00 blocks of flight and 99 stalled ticks. The assertion was
+        // right about what it wanted and wrong about when to look.
+
+        if (s.endTick > 0 && s.t > s.endTick + 165 && s.t <= s.endTick + 265) {
             DragonEntity dragon = firstDragon(s.level);
             if (dragon != null) {
                 Vec3 now = dragon.position();
@@ -876,7 +904,7 @@ public final class SummonAudit {
             }
         }
 
-        if (s.endTick > 0 && s.t == s.endTick + 104) {
+        if (s.endTick > 0 && s.t == s.endTick + 266) {
             log("flight after the cinematic: " + s.flightSamples + " samples, path "
                     + String.format("%.2f", s.pathLength) + " blocks, mean "
                     + String.format("%.3f", s.pathLength / Math.max(1, s.flightSamples))
@@ -890,11 +918,11 @@ public final class SummonAudit {
                     "the arrival flourish has ended and normal AI has the entity");
         }
 
-        if (s.endTick > 0 && s.t == s.endTick + 108) {
+        if (s.endTick > 0 && s.t == s.endTick + 270) {
             log("killing the dragon to test that the gate reopens");
             killDragons(s.level);
         }
-        if (s.endTick > 0 && s.t == s.endTick + 112) {
+        if (s.endTick > 0 && s.t == s.endTick + 274) {
             check(dragonCount(s.level) == 0, "dragon is gone");
             check(ServerSummonManager.activeDragonCount() == 0,
                     "the manager pruned the dead dragon ("
@@ -919,7 +947,7 @@ public final class SummonAudit {
         // the clients must be told (or their cameras keep rolling for a summon that no longer
         // exists), the never-revealed dragon must be discarded rather than left hidden and frozen in
         // the world forever, and the bar must be released.
-        if (s.endTick > 0 && s.t == s.endTick + 116) {
+        if (s.endTick > 0 && s.t == s.endTick + 278) {
             DragonEntity hidden = firstDragon(s.level);
             log("---- interruption test ----");
             check(ServerSummonManager.pendingCount() == 1, "a cinematic is running to interrupt");
@@ -932,7 +960,7 @@ public final class SummonAudit {
             s.summoner.setHealth(0.0F);
             log("summoner killed at scenario tick " + s.t + " mid-cinematic");
         }
-        if (s.endTick > 0 && s.t == s.endTick + 118) {
+        if (s.endTick > 0 && s.t == s.endTick + 280) {
             check(ServerSummonManager.pendingCount() == 0,
                     "the interrupted cinematic was abandoned ("
                             + ServerSummonManager.pendingCount() + " still pending)");
@@ -955,7 +983,242 @@ public final class SummonAudit {
                     "no fear was applied by a sequence that never reached its reveal ("
                             + DragonFearManager.frightenedCount() + ")");
         }
-        if (s.endTick > 0 && s.t == s.endTick + 121) {
+        // ==================================================================
+        // MOUNT / RIDE
+        // ==================================================================
+        // Runs on a fresh dragon summoned at endTick+126, so the spawn grace is being observed from its
+        // very first tick rather than inferred part-way through.
+        if (s.endTick > 0 && s.t == s.endTick + 286) {
+            ServerSummonManager.clearAll();
+            killDragons(s.level);
+            s.summoner.setHealth(20.0F);
+            PowerData data = ServerSummonManager.data(s.summoner);
+            data.setChargeTicks(RasenganConfig.summonChargeDurationTicks());
+            data.setState(PowerState.READY);
+            log("---- mount tests: summoning a fresh dragon ----");
+            check(ServerSummonManager.trySummon(s.summoner), "a dragon was summoned for the mount test");
+            s.mountSummonTick = s.t;
+        }
+
+        if (s.mountSummonTick > 0) {
+            int sinceSummon = s.t - s.mountSummonTick;
+            DragonEntity dragon = firstDragon(s.level);
+            int reveal = RasenganConfig.summonRevealTick();
+
+            // ---- the moment it becomes visible: grace must be armed ----
+            if (dragon != null && sinceSummon == reveal + 1 && s.graceStartTick < 0) {
+                s.graceStartTick = s.t;
+                int expected = RasenganConfig.mountSpawnImmunityTicks();
+                log("grace armed at reveal+1: immunity=" + dragon.spawnImmunityTicks()
+                        + "t perch=" + dragon.perchTicks() + "t (configured " + expected + "t)");
+                check(dragon.spawnImmunityTicks() > expected - 3,
+                        "spawn immunity is armed for the configured duration ("
+                                + dragon.spawnImmunityTicks() + " vs " + expected + ")");
+                check(dragon.isSpawnImmune(), "the dragon reports itself immune");
+
+                // ---- ownership ----
+                check(dragon.summoner() != null
+                                && dragon.summoner().equals(s.summoner.getUUID()),
+                        "the dragon records its summoner");
+                check(dragon.mayMount(s.summoner), "the summoner may mount");
+                check(!dragon.mayMount(s.observer),
+                        "a player who did not summon it may NOT mount");
+
+                // ---- the head region is separate from the body ----
+                // Stand the observer where the head is and aim at it; then aim at the body from the same
+                // spot. Only the first may register.
+                var headCentre = dev.rasengan.DragonAnchor.headCentre(dragon.position(),
+                        dragon.getYRot(), dragon.getXRot(), (float) dragon.tickCount,
+                        !dragon.onGround());
+                log("head centre " + fmt(headCentre) + ", dragon at " + fmt(dragon.position())
+                        + ", separation " + String.format("%.3f",
+                                headCentre.distanceTo(dragon.position())) + " blocks");
+                check(headCentre.distanceTo(dragon.position()) > 3.0D,
+                        "the head region is over 3 blocks from the entity origin, i.e. outside the "
+                                + "6.0-wide collision box");
+            }
+
+            // ---- damage attempts across and past the immunity window ----
+            if (dragon != null && s.graceStartTick > 0) {
+                int intoGrace = s.t - s.graceStartTick;
+                int immunity = RasenganConfig.mountSpawnImmunityTicks();
+                if (intoGrace <= immunity + 25 && intoGrace % 5 == 0) {
+                    float before = dragon.getHealth();
+                    // A deliberately varied set, so "immune to everything" is tested rather than
+                    // "immune to player attacks".
+                    var sources = dragon.damageSources();
+                    var source = switch ((intoGrace / 5) % 4) {
+                        case 0 -> sources.playerAttack(s.summoner);
+                        case 1 -> sources.inFire();
+                        case 2 -> sources.fall();
+                        default -> sources.generic();
+                    };
+                    dragon.hurtServer(s.level, source, 25.0F);
+                    float after = dragon.getHealth();
+                    boolean tookDamage = after < before - 1.0E-4F;
+                    s.damageAttempts++;
+                    if (tookDamage) {
+                        s.damageLanded++;
+                        if (s.firstDamageTick < 0) {
+                            s.firstDamageTick = intoGrace;
+                            log("first damage landed at grace+" + intoGrace + "t (immunity configured "
+                                    + immunity + "t); health " + before + " -> " + after);
+                        }
+                    } else if (s.firstDamageTick < 0) {
+                        s.lastBlockedTick = intoGrace;
+                    }
+                    // Keep it alive for the rest of the run.
+                    dragon.setHealth(dragon.getMaxHealth());
+                }
+            }
+
+            // ---- mount, launch, dismount ----
+            if (dragon != null && s.graceStartTick > 0 && s.t == s.graceStartTick + 4) {
+                s.observer.clear();
+                boolean refused = !dev.rasengan.server.DragonMountManager.tryMount(s.observer);
+                check(refused, "a non-summoner's mount request is refused");
+                check(dragon.getPassengers().isEmpty(), "and did not put them aboard");
+
+                // Put the summoner in front of the head, looking at it, then request a mount.
+                var head = dev.rasengan.DragonAnchor.headCentre(dragon.position(), dragon.getYRot(),
+                        dragon.getXRot(), (float) dragon.tickCount, !dragon.onGround());
+                var stand = head.add(0.0D, -1.4D, 3.0D);
+                s.summoner.snapTo(stand.x, stand.y, stand.z, 180.0F, 0.0F);
+                s.summoner.clear();
+                boolean mounted = dev.rasengan.server.DragonMountManager.tryMount(s.summoner);
+                log("summoner at " + fmt(s.summoner.position()) + " aiming at head: mounted=" + mounted);
+                check(mounted, "the summoner mounts by aiming at the head");
+                check(dragon.rider() == s.summoner, "the summoner is the rider");
+                check(dragon.ridePhase() == dev.rasengan.server.DragonRideControl.PHASE_PERCHED
+                                || dragon.ridePhase()
+                                        == dev.rasengan.server.DragonRideControl.PHASE_FLYING,
+                        "the ride phase is set, got " + dragon.ridePhase());
+                check(dragon.isSpawnImmune(),
+                        "mounting during the grace window is allowed and did not end the immunity");
+                s.mountedTick = s.t;
+                s.mountY = dragon.getY();
+            }
+
+            // ---- WW launch, fed as replicated input ----
+            if (dragon != null && s.mountedTick > 0 && s.t == s.mountedTick + 2) {
+                s.summoner.setLastClientInput(
+                        new net.minecraft.world.entity.player.Input(
+                                true, false, false, false, false, false, false));
+            }
+            if (dragon != null && s.mountedTick > 0 && s.t == s.mountedTick + 3) {
+                s.summoner.setLastClientInput(net.minecraft.world.entity.player.Input.EMPTY);
+            }
+            if (dragon != null && s.mountedTick > 0 && s.t == s.mountedTick + 4) {
+                s.summoner.setLastClientInput(
+                        new net.minecraft.world.entity.player.Input(
+                                true, false, false, false, false, false, false));
+            }
+            if (dragon != null && s.mountedTick > 0 && s.t == s.mountedTick + 6) {
+                log("after WW: ridePhase=" + dragon.ridePhase() + " perch=" + dragon.perchTicks()
+                        + "t immunity=" + dragon.spawnImmunityTicks() + "t");
+                check(dragon.ridePhase() == dev.rasengan.server.DragonRideControl.PHASE_LAUNCHING
+                                || dragon.ridePhase()
+                                        == dev.rasengan.server.DragonRideControl.PHASE_FLYING,
+                        "a double-tap of W launched the dragon, got phase " + dragon.ridePhase());
+                check(dragon.perchTicks() == 0, "the launch cut the grounded perch short");
+                check(dragon.isSpawnImmune(),
+                        "but did NOT shorten the damage immunity - the two clocks are independent");
+            }
+            // Track the climb so the launch can be shown to be a curve rather than a snap.
+            //
+            // Sampling starts on the LAUNCHING transition rather than at a fixed offset from the mount.
+            // A fixed offset guessed wrong by a tick or two and missed the ramp entirely, which made a
+            // correct curve look like a snap - the first sample already being at peak.
+            if (dragon != null && s.mountedTick > 0
+                    && dragon.ridePhase() == dev.rasengan.server.DragonRideControl.PHASE_LAUNCHING) {
+                s.launchSamples.add(dragon.getDeltaMovement().y);
+            }
+            if (dragon != null && s.mountedTick > 0 && s.t > s.mountedTick) {
+                s.maxClimbY = Math.max(s.maxClimbY, dragon.getY() - s.mountY);
+            }
+            if (dragon != null && s.mountedTick > 0
+                    && s.t == s.mountedTick + 6 + RasenganConfig.SERVER.mountLaunchTicks.get()) {
+                double first = s.launchSamples.isEmpty() ? 0.0D : s.launchSamples.get(0);
+                double peak = 0.0D;
+                double maxStep = 0.0D;
+                double prev = 0.0D;
+                for (double v : s.launchSamples) {
+                    peak = Math.max(peak, v);
+                    maxStep = Math.max(maxStep, Math.abs(v - prev));
+                    prev = v;
+                }
+                log(String.format("launch climb: %d samples, first vy %.5f, peak vy %.5f, "
+                                + "max step %.5f, altitude gained %.3f blocks",
+                        s.launchSamples.size(), first, peak, maxStep, s.maxClimbY));
+                check(peak > 0.2D, "the dragon genuinely climbed (peak vy " + peak + " b/t)");
+                check(first < peak * 0.5D,
+                        "the climb ramped in rather than snapping to peak velocity");
+                check(maxStep < peak * 0.5D, "no single tick jumped more than half the peak");
+                check(s.maxClimbY > 3.0D,
+                        "real altitude was gained (" + String.format("%.2f", s.maxClimbY) + " blocks)");
+            }
+
+            // ---- dismount at altitude ----
+            if (dragon != null && s.mountedTick > 0
+                    && s.t == s.mountedTick + 10 + RasenganConfig.SERVER.mountLaunchTicks.get()) {
+                double altitude = s.summoner.getY();
+                s.summoner.stopRiding();
+                log(String.format("dismounted at y=%.2f (%.2f above the mount point)",
+                        altitude, altitude - s.mountY));
+                check(dragon.rider() == null, "the dragon has no rider after dismount");
+                check(dragon.ridePhase() == dev.rasengan.server.DragonRideControl.PHASE_NONE,
+                        "the ride phase is cleared, got " + dragon.ridePhase());
+                check(!dragon.isNoAi(),
+                        "the dragon is handed back to its own AI, not left frozen");
+                check(!s.summoner.isPassenger(), "the player is no longer a passenger");
+                s.dismountTick = s.t;
+            }
+            if (dragon != null && s.dismountTick > 0 && s.t == s.dismountTick + 12) {
+                // The dragon must resume real flight under the standalone AI it already had.
+                check(!dragon.onGround() || dragon.getDeltaMovement().length() > 0.01D,
+                        "the dragon is moving again under its own AI");
+                log("post-dismount: dragon velocity "
+                        + String.format("%.4f", dragon.getDeltaMovement().length())
+                        + " b/t, ridePhase=" + dragon.ridePhase());
+
+                // ---- ownership survives losing the in-memory map ----
+                // This is the restart case, minus the restart: clearing ACTIVE_DRAGONS is exactly what
+                // ServerStoppingEvent does, so if the limit still holds afterwards it is holding on the
+                // persisted summoner rather than on the map.
+                int before = ServerSummonManager.activeDragonCount();
+                ServerSummonManager.clearActiveDragonsForTest();
+                boolean stillLimited = ServerSummonManager.hasLiveDragon(s.summoner);
+                log("cleared the in-memory dragon map (had " + before
+                        + "); hasLiveDragon now reports " + stillLimited);
+                check(stillLimited,
+                        "the one-dragon-per-player limit survives the in-memory map being lost, "
+                                + "because the summoner is persisted on the entity");
+            }
+        }
+
+        if (s.endTick > 0 && s.mountSummonTick > 0
+                && s.t == s.mountSummonTick + 420) {
+            int immunity = RasenganConfig.mountSpawnImmunityTicks();
+            log("---- immunity summary ----");
+            log("damage attempts: " + s.damageAttempts + ", landed: " + s.damageLanded
+                    + ", last blocked at grace+" + s.lastBlockedTick
+                    + "t, first landed at grace+" + s.firstDamageTick + "t"
+                    + " (configured immunity " + immunity + "t)");
+            check(s.damageAttempts > 20,
+                    "enough damage attempts were made to be meaningful (" + s.damageAttempts + ")");
+            check(s.lastBlockedTick >= 0 && s.lastBlockedTick < immunity,
+                    "damage was still being blocked inside the window (last blocked at "
+                            + s.lastBlockedTick + "t)");
+            check(s.firstDamageTick >= immunity,
+                    "no damage landed before the window expired (first landed at grace+"
+                            + s.firstDamageTick + "t, immunity " + immunity + "t)");
+            check(s.firstDamageTick - immunity <= 6,
+                    "and damage resumed promptly once it did (" + (s.firstDamageTick - immunity)
+                            + "t after expiry)");
+            check(s.damageLanded > 0, "normal damage handling genuinely resumed");
+        }
+
+        if (s.endTick > 0 && s.mountSummonTick > 0 && s.t == s.mountSummonTick + 430) {
             log("---- teardown ----");
             ServerSummonManager.clearAll();
             killDragons(s.level);

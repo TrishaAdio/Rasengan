@@ -1,0 +1,112 @@
+
+=== A. Head geometry comes from the asset ===
+  head box (model space, blocks): x[-0.68019,0.68019] y[3.31250,5.18934] z[-5.12500,-3.31250]
+  size: 1.3604 wide x 1.8768 tall x 1.8125 deep
+  rider anchor (rest pose): up 4.56250, forward -3.87500
+  head centre is 4.2188 blocks forward; the collision box reaches 3.0
+  ok:   the head sits OUTSIDE the 6.0-wide collision box, so vanilla picking cannot see it
+  ok:   the head box is much smaller than the body (under 2 blocks in every axis)
+  ok:   the rider anchor is inside the head box vertically
+  ok:   the rider anchor is NOT at the horn tips (below the box top)
+
+=== B. The head region is separate from the body, and hits only the head ===
+  looking level at the head from 4.8 blocks in front: true
+  ok:   a ray along the head's axis hits it
+  looking level at the body from the same distance:  false
+  ok:   aiming at the body does NOT register as the head
+  looking from behind (tail end):                    false
+  ok:   aiming from behind does NOT hit the head
+  correct aim but 35 blocks away:                    false
+  ok:   reach is enforced
+  same ray after the dragon yaws 90 degrees:         false
+  ok:   the head region rotates with the body rather than being world-aligned
+  aiming at the new front after that yaw:            true
+  ok:   the head is hittable from wherever it now points
+  horizontal fan test: 13 of 65 directions hit (20.0%)
+  ok:   the head is a narrow target, not a wide one (under 30% of the fan)
+
+=== C. Basis is orthonormal and the model/world transform round-trips ===
+  sampled 780 (yaw, pitch) pairs
+  worst |len-1| over the three axes: 2.220e-16
+  worst |dot| between axes:          1.266e-16
+  worst model->world->model error:   2.863e-15 blocks
+  ok:   the basis is normalised
+  ok:   the basis is orthogonal
+  ok:   toWorld and toModel are exact inverses
+  at yaw 0, model-forward 4 blocks -> world (-0.0000, 0.0000, 4.0000)
+  ok:   the model's -Z maps to world +Z at yaw 0 (4.000000)
+  ok:   with no sideways component (-0.000000)
+
+=== D. Rider anchor tracks the animated head ===
+  flight anchor height: 3.93768 .. 5.16485 (swing 1.22717 blocks)
+  max change per 0.25 ticks: 0.02464 blocks
+  ok:   the anchor genuinely bobs with the flight animation (over 1 block of swing)
+  ok:   and does so continuously, not in jumps
+  idle anchor height:   3.95714 .. 4.43271 (swing 0.47557 blocks)
+  ok:   the idle bob is present but smaller than the flight bob
+  flight cycle 39.1660 ticks; y(3.7)=5.133041 y(3.7+cycle)=5.133041
+  ok:   the anchor is periodic across the cycle boundary (5.133041)
+  ok:   the anchor never drops below the head box at any phase
+
+=== E. Launch curve: eased, no snap, integrates to the configured height ===
+   tick   vy
+      0   0.004017
+      5   0.435060
+     10   1.164376
+     15   1.462649
+     20   1.031607
+     25   0.302291
+  integral over 30 ticks = 22.0000 blocks (configured 22.0)
+  peak 1.462649 b/t, first tick 0.004017, last tick 0.004017, after the end 0.000000
+  max change per tick 0.152469 b/t
+  ok:   the climb reaches the configured height within 2%
+  ok:   it does NOT start with a velocity snap (first tick under 8% of peak)
+  ok:   it eases out rather than cutting (last tick under 8% of peak)
+  ok:   it contributes nothing once finished (0.000000)
+  ok:   no single tick changes vertical speed by more than 12% of peak
+  with a 60-tick window the integral is 22.0000 blocks
+  ok:   the height is independent of the window length
+
+=== F. Turn-rate limiting never exceeds the cap and wraps through 180 ===
+  largest single-tick yaw change over a full sweep: 4.500000 (cap 4.50)
+  ok:   the turn rate is never exceeded
+  170 -> -170 steps to 174.5000 (the short way is +, i.e. past 180)
+  ok:   it takes the short way round the 180 boundary
+  0 -> 120 degrees took 27 ticks at 4.50 deg/tick (26.7 expected)
+  ok:   it converges on the target
+  ok:   in about the predicted number of ticks
+  ok:   no movement when already aligned (45.000000)
+
+=== G. Bank angle: eased, symmetric, saturating ===
+   yawDelta  bank
+     -4.500  -32.00000
+     -1.500  -8.29630
+     -0.000  -0.00000
+  bank(0)=0.000000  bank(max)=32.0000  bank(4x max)=32.0000  bank(-max)=-32.0000
+  ok:   level flight means no bank (0.000000)
+  ok:   a full-rate turn banks to the limit (32.000000)
+  ok:   and saturates rather than exceeding it (32.000000)
+  ok:   banking is symmetric (-32.000000)
+  ok:   the bank curve has no steps
+  bank at 25%/50%/75% of turn rate: 5.0000 / 16.0000 / 27.0000
+  linear would give:                 8.0000 / 16.0000 / 24.0000
+  ok:   the bank eases IN (below linear in the first half)
+  ok:   the bank eases OUT (above linear in the second half)
+  ok:   and is symmetric about the midpoint (16.000000)
+
+=== H. Double-tap detection is edge-triggered and windowed ===
+  ok:   a single W press never launches
+  W held for 60 ticks: launched = false
+  ok:   holding W forward never launches - the detector is edge-triggered
+  press, release, press (2 ticks apart): fired 1 time(s)
+  ok:   a double-tap inside the window launches exactly once
+  two taps 10 ticks apart (window 6): fired 0 time(s)
+  ok:   a slow double-tap does NOT launch
+  two taps exactly at the window edge: fired 1 time(s)
+  ok:   the window boundary is inclusive
+  press, reset, press: fired 0 time(s)
+  ok:   reset disarms a pending tap, so a fresh mount starts clean
+
+================================================================
+46 assertions, 0 failures
+================================================================

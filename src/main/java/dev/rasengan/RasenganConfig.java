@@ -81,6 +81,20 @@ public final class RasenganConfig {
         public final ModConfigSpec.BooleanValue summonAnnounceGlobally;
         public final ModConfigSpec.ConfigValue<String> summonLinesResource;
 
+        // ---- Mount / ride ----
+        public final ModConfigSpec.BooleanValue mountEnabled;
+        public final ModConfigSpec.BooleanValue mountSummonerOnly;
+        public final ModConfigSpec.IntValue mountDoubleTapWindowTicks;
+        public final ModConfigSpec.IntValue mountLaunchTicks;
+        public final ModConfigSpec.DoubleValue mountLaunchHeight;
+        public final ModConfigSpec.DoubleValue mountMaxSpeed;
+        public final ModConfigSpec.DoubleValue mountAcceleration;
+        public final ModConfigSpec.DoubleValue mountTurnRateDegrees;
+        public final ModConfigSpec.DoubleValue mountPitchRateDegrees;
+        public final ModConfigSpec.DoubleValue mountBankLimitDegrees;
+        public final ModConfigSpec.IntValue mountSpawnImmunitySeconds;
+        public final ModConfigSpec.BooleanValue mountDismountFallDamage;
+
         // ---- Fear effect ----
         public final ModConfigSpec.BooleanValue fearEnabled;
         public final ModConfigSpec.DoubleValue fearRadius;
@@ -425,6 +439,81 @@ public final class RasenganConfig {
                             "/reload picks up changes without a restart.")
                     .define("lines_resource", "rasengan:awakening");
 
+            builder.pop().push("mount");
+
+            builder.comment("Riding the summoned dragon.",
+                    "The rider STANDS on the dragon's head rather than sitting in a saddle, and steers",
+                    "elytra-style with their look direction. Every value here is enforced server-side:",
+                    "the server reads the rider's replicated input, computes the resulting velocity and",
+                    "rotation itself, and syncs the result. A modified client cannot move the dragon.");
+
+            mountEnabled = builder
+                    .comment("Allow the summoned dragon to be ridden at all.",
+                            "False leaves it as a pure standalone boss.")
+                    .define("enabled", true);
+
+            mountSummonerOnly = builder
+                    .comment("Only the player who summoned the dragon may mount it.",
+                            "Setting this false lets ANY player mount any summoned dragon - there is no",
+                            "trusted-player list yet, so false means everyone. Leave it true unless you",
+                            "specifically want a free-for-all.")
+                    .define("summoner_only", true);
+
+            mountDoubleTapWindowTicks = builder
+                    .comment("Maximum ticks between the two W presses of the launch double-tap.",
+                            "Default 6 ticks = 300ms. Detected server-side from the rider's replicated",
+                            "input, so it cannot be spoofed by a client claiming 'I double-tapped'.")
+                    .defineInRange("double_tap_window_ticks", 6, 2, 20);
+
+            mountLaunchTicks = builder
+                    .comment("Length of the launch climb in ticks (20 = 1 second).",
+                            "The dragon eases upward over this window rather than snapping to a",
+                            "velocity. Default 30 = 1.5 seconds.")
+                    .defineInRange("launch_ticks", 30, 5, 200);
+
+            mountLaunchHeight = builder
+                    .comment("Blocks of altitude the launch climb gains before handing over to the",
+                            "player's steering.")
+                    .defineInRange("launch_height", 22.0D, 2.0D, 200.0D);
+
+            mountMaxSpeed = builder
+                    .comment("Top speed under player control, in blocks per tick.",
+                            "0.9 b/t = 18 blocks/second, comfortably faster than the AI cruise of ~0.51.")
+                    .defineInRange("max_speed", 0.9D, 0.05D, 4.0D);
+
+            mountAcceleration = builder
+                    .comment("Fraction of the gap to target speed closed each tick, 0..1.",
+                            "This is a smoothing factor, not a binary throttle: 0.08 gives a noticeably",
+                            "heavy spool-up and coast-down. Higher is twitchier.")
+                    .defineInRange("acceleration", 0.08D, 0.005D, 1.0D);
+
+            mountTurnRateDegrees = builder
+                    .comment("Maximum yaw change per tick, in degrees. This is the turn-rate limit that",
+                            "makes steering feel weighty instead of snapping to the look direction.")
+                    .defineInRange("turn_rate_degrees", 4.5D, 0.25D, 90.0D);
+
+            mountPitchRateDegrees = builder
+                    .comment("Maximum pitch change per tick, in degrees.")
+                    .defineInRange("pitch_rate_degrees", 3.5D, 0.25D, 90.0D);
+
+            mountBankLimitDegrees = builder
+                    .comment("Maximum bank (roll) angle during a turn, in degrees. Cosmetic: it tilts",
+                            "the model, and deliberately does NOT tilt the rider, who stays upright.")
+                    .defineInRange("bank_limit_degrees", 32.0D, 0.0D, 80.0D);
+
+            mountSpawnImmunitySeconds = builder
+                    .comment("Seconds after being summoned during which the dragon takes NO damage from",
+                            "any source, and stays grounded at the summon point.",
+                            "Implemented as a real check in the damage path, not a health buffer.",
+                            "Launching cuts the grounded hold short but does NOT shorten the immunity.")
+                    .defineInRange("spawn_immunity_seconds", 10, 0, 300);
+
+            mountDismountFallDamage = builder
+                    .comment("Whether a rider who dismounts in mid-air takes normal fall damage.",
+                            "True (default) means dismounting at altitude is exactly as dangerous as",
+                            "stepping off any other high place. False grants immunity for the fall.")
+                    .define("dismount_fall_damage", true);
+
             builder.pop().push("fear");
 
             builder.comment("How nearby hostile mobs react to the dragon's arrival.",
@@ -523,6 +612,11 @@ public final class RasenganConfig {
      */
     public static SummonTimeline.Stages summonStages() {
         return SummonTimeline.of(SERVER.summonCinematicTicks.get(), summonRevealTick());
+    }
+
+    /** Spawn damage-immunity window in ticks. */
+    public static int mountSpawnImmunityTicks() {
+        return SERVER.mountSpawnImmunitySeconds.get() * 20;
     }
 
     public static int castDurationTicks(dev.rasengan.AbilityType ability) {

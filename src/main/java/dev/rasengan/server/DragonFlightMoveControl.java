@@ -68,6 +68,21 @@ public class DragonFlightMoveControl extends MoveControl {
     private boolean active;
     private float turnRateMultiplier = 1.0F;
 
+    /**
+     * Fully disables this control, for when something else owns the velocity.
+     *
+     * <p>Needed for the ridden dragon. {@link #stopFlying()} is not enough: with no destination,
+     * {@code tick()} still runs {@link #coast()}, which scales the velocity by 0.90 every tick - that
+     * would quietly bleed 10% per tick off a rider's carefully computed thrust and make the mount feel
+     * like it was flying through treacle. Suspension has to mean "touch nothing".
+     *
+     * <p>Deliberately not implemented by setting {@code NoAi} instead: {@code Mob.isEffectiveAi()}
+     * returns false when {@code NoAi} is set, and {@code LivingEntity.aiStep} only calls
+     * {@code travel()} when {@code isEffectiveAi()}, so a ridden dragon with {@code NoAi} would have
+     * its velocity set and then never integrated - it would hang motionless in the air.
+     */
+    private boolean suspended;
+
     public DragonFlightMoveControl(Mob mob) {
         super(mob);
         this.mob = mob;
@@ -116,6 +131,18 @@ public class DragonFlightMoveControl extends MoveControl {
         this.active = false;
     }
 
+    /** Suspends or resumes this control. While suspended it writes nothing at all. */
+    public void setSuspended(boolean suspended) {
+        this.suspended = suspended;
+        if (suspended) {
+            this.active = false;
+        }
+    }
+
+    public boolean isSuspended() {
+        return this.suspended;
+    }
+
     public Vec3 wantedPosition() {
         return new Vec3(this.wantedX, this.wantedY, this.wantedZ);
     }
@@ -138,6 +165,9 @@ public class DragonFlightMoveControl extends MoveControl {
         // off our own `active` flag rather than losing the destination after one tick.
         if (this.operation == MoveControl.Operation.MOVE_TO) {
             this.operation = MoveControl.Operation.WAIT;
+        }
+        if (this.suspended) {
+            return; // a rider owns the velocity; not even coast() may touch it
         }
         if (!this.active) {
             coast();
