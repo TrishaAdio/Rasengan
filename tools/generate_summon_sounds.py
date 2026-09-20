@@ -5,9 +5,16 @@ Fully original: every sample is computed here from oscillators and shaped noise 
 Python standard library. Nothing is sampled, ripped or imported, so there is no licensing question
 to resolve - unlike the shipped ability audio, which is still flagged in AUDIO_CREDITS.md.
 
-  summon_buildup : ~3.5 s rising drone + swelling noise, ending on an abrupt cut so the reveal lands
-                   in the gap. Timed to the 70-tick (3.5 s) reveal beat.
-  summon_reveal  : ~1.6 s low impact, a body thump with a descending sweep and a debris tail.
+  summon_buildup : rising drone + swelling noise, ending on an abrupt cut so the reveal lands in the
+                   gap. Its length is the reveal tick, so it stops exactly on the reveal beat.
+  summon_reveal  : low impact, a body thump with a descending sweep and a debris tail. Its length
+                   covers the silhouette-reveal and wing-dispersal stages.
+
+The two durations below are DERIVED FROM THE TIMELINE, not chosen independently. They were 3.5 s and
+1.6 s when the cinematic's reveal sat at tick 70; the five-stage rebuild moved the reveal to tick 32,
+and a buildup that still ran 3.5 s would have kept droning through the reveal, the dispersal and the
+settle - the one thing its abrupt cut exists to avoid. Keep these in step with
+dev.rasengan.SummonTimeline if the stage layout changes again.
 
 Writes 16-bit mono 44.1 kHz WAV, then encodes to OGG with the ffmpeg bundled by imageio_ffmpeg -
 matching the format the mod's other audio uses.
@@ -23,6 +30,14 @@ import wave
 RATE = 44100
 OUT = os.path.join(os.path.dirname(__file__), "..",
                    "src/main/resources/assets/rasengan/sounds")
+
+# ---- Timeline, mirroring dev.rasengan.SummonTimeline's reference layout ----
+TICK = 1.0 / 20.0
+REVEAL_TICK = 32            # stage A + stage B: seal 12 + eruption 20
+REVEAL_TO_SETTLE_TICKS = 29  # stage C (~17) + stage D (12), to the start of the settle
+
+BUILDUP_SECONDS = REVEAL_TICK * TICK                # 1.60 s, cuts on the reveal
+REVEAL_SECONDS = REVEAL_TO_SETTLE_TICKS * TICK      # 1.45 s, covers reveal + dispersal
 
 
 def clamp(v):
@@ -116,7 +131,8 @@ def encode(wav_path, ogg_path):
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for name, samples in (("summon_buildup", buildup()), ("summon_reveal", reveal())):
+    for name, samples in (("summon_buildup", buildup(BUILDUP_SECONDS)),
+                          ("summon_reveal", reveal(REVEAL_SECONDS))):
         wav = os.path.join(OUT, name + ".wav")
         ogg = os.path.join(OUT, name + ".ogg")
         write_wav(wav, samples)

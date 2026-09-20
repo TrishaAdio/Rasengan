@@ -52,5 +52,14 @@
         "stream": false
       }
     ]
+  },
+  "summon_roar": {
+    "category": "hostile",
+    "sounds": [
+      {
+        "name": "rasengan:summon_roar",
+        "stream": false
+      }
+    ]
   }
 }

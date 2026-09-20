@@ -74,11 +74,20 @@ public final class RasenganConfig {
         public final ModConfigSpec.IntValue summonCinematicTicks;
         public final ModConfigSpec.IntValue summonRevealTick;
         public final ModConfigSpec.BooleanValue summonCameraEffect;
-        public final ModConfigSpec.IntValue summonCameraStartTick;
-        public final ModConfigSpec.IntValue summonCameraEndTick;
+        public final ModConfigSpec.IntValue summonCameraReleaseTicks;
+        public final ModConfigSpec.DoubleValue summonCameraRadius;
+        public final ModConfigSpec.DoubleValue summonSmokeDensity;
         public final ModConfigSpec.DoubleValue summonSoundVolume;
         public final ModConfigSpec.BooleanValue summonAnnounceGlobally;
         public final ModConfigSpec.ConfigValue<String> summonLinesResource;
+
+        // ---- Fear effect ----
+        public final ModConfigSpec.BooleanValue fearEnabled;
+        public final ModConfigSpec.DoubleValue fearRadius;
+        public final ModConfigSpec.IntValue fearDurationTicks;
+        public final ModConfigSpec.BooleanValue fearSuppressAttacks;
+        public final ModConfigSpec.BooleanValue fearBossImmune;
+        public final ModConfigSpec.BooleanValue fearPlayerVignette;
 
         // ---- Dragon mob ----
         public final ModConfigSpec.DoubleValue dragonHealth;
@@ -358,29 +367,47 @@ public final class RasenganConfig {
 
             summonCinematicTicks = builder
                     .comment("Total length of the summoning sequence in ticks (20 ticks = 1s).",
-                            "Default 100 = 5.0s.")
-                    .defineInRange("cinematic_ticks", 100, 20, 400);
+                            "Default 70 = 3.5s, which is the sum of the five stage durations:",
+                            "  seal 0.6s + smoke eruption 1.0s + reveal 0.8s + dispersal 0.6s + settle 0.5s",
+                            "Stage boundaries are derived from this and reveal_tick - see SummonTimeline.",
+                            "Lengthening this stretches every stage proportionally rather than padding the end.")
+                    .defineInRange("cinematic_ticks", SummonTimeline.REFERENCE_TOTAL_TICKS, 20, 400);
 
             summonRevealTick = builder
-                    .comment("Tick within the sequence at which the dragon appears and speaks.",
-                            "Default 70 = 3.5s, leaving 1.5s of settle afterwards.",
-                            "Must be less than cinematic_ticks.")
-                    .defineInRange("reveal_tick", 70, 5, 399);
+                    .comment("Tick at which the dragon becomes visible and speaks - the smoke-eruption",
+                            "to silhouette-reveal boundary. Default 32 = 1.6s.",
+                            "The dragon is SPAWNED at tick 0 and held hidden until here, so no entity or",
+                            "model loading lands on the reveal frame. Must be less than cinematic_ticks.")
+                    .defineInRange("reveal_tick", SummonTimeline.REFERENCE_REVEAL_TICK, 5, 399);
 
             summonCameraEffect = builder
                     .comment("Enable the cinematic camera move for the summoner and nearby players.",
-                            "Set false to leave every camera alone - some players dislike any forced",
-                            "camera movement. Player input is never locked either way.")
+                            "Set false to leave every camera completely alone - some players dislike any",
+                            "forced camera movement. ALL smoke, seal and fog visuals still play; only the",
+                            "roll, FOV, third-person pull-back and rumble are skipped.",
+                            "Player look input is never captured or suppressed either way: the effect only",
+                            "offsets the rendered camera, so there is nothing to flush on release.")
                     .define("camera_effect", true);
 
-            summonCameraStartTick = builder
-                    .comment("Tick the camera move begins.")
-                    .defineInRange("camera_start_tick", 45, 0, 399);
+            summonCameraReleaseTicks = builder
+                    .comment("Ticks over which the camera eases back to the player's own view at the end",
+                            "of the sequence. Default 12 = 0.6s, on an ease-in-out curve.",
+                            "Never a hard cut: a one-frame snap back to the real view reads as a lag",
+                            "spike even when no frames were dropped.")
+                    .defineInRange("camera_release_ticks", 12, 4, 40);
 
-            summonCameraEndTick = builder
-                    .comment("Tick the camera move ends and the view is fully released.",
-                            "Defaults give 45..95 = 50 ticks = 2.5 seconds.")
-                    .defineInRange("camera_end_tick", 95, 1, 400);
+            summonCameraRadius = builder
+                    .comment("Blocks within which an observer gets the cinematic camera move.",
+                            "The effect fades to nothing over the last quarter of this distance rather",
+                            "than switching off at the boundary, so walking across it cannot snap the view.")
+                    .defineInRange("camera_radius", 64.0D, 4.0D, 256.0D);
+
+            summonSmokeDensity = builder
+                    .comment("Multiplier on summoning smoke particle counts. 1.0 is tuned to fully obscure",
+                            "the summon at peak, which the reveal depends on - lowering it below about 0.6",
+                            "will start to leave the dragon visible through the cloud.",
+                            "The client's own particle setting scales down from here as well.")
+                    .defineInRange("smoke_density", 1.0D, 0.1D, 3.0D);
 
             summonSoundVolume = builder
                     .comment("Volume multiplier for the summoning buildup and reveal sounds.")
@@ -397,6 +424,43 @@ public final class RasenganConfig {
                             "shipped file, override it from a datapack, or point this at their own.",
                             "/reload picks up changes without a restart.")
                     .define("lines_resource", "rasengan:awakening");
+
+            builder.pop().push("fear");
+
+            builder.comment("How nearby hostile mobs react to the dragon's arrival.",
+                    "Applied server-side on the reveal beat: affected mobs get a temporary",
+                    "high-priority flee goal aimed at the dragon, so they actually run away rather",
+                    "than merely being slowed. Players are never force-moved by any setting here.");
+
+            fearEnabled = builder
+                    .comment("Enable the fear reaction entirely.")
+                    .define("enabled", true);
+
+            fearRadius = builder
+                    .comment("Blocks from the dragon within which hostile mobs are frightened.")
+                    .defineInRange("radius", 24.0D, 1.0D, 128.0D);
+
+            fearDurationTicks = builder
+                    .comment("How long a frightened mob flees, in ticks (20 ticks = 1 second).",
+                            "Default 140 = 7 seconds. The temporary goal is removed when this expires,",
+                            "when the dragon dies or despawns, or when the mob is unloaded.")
+                    .defineInRange("duration_ticks", 140, 10, 2_400);
+
+            fearSuppressAttacks = builder
+                    .comment("Also suppress the mob's targeting while it flees, so it does not turn and",
+                            "fight mid-retreat. Restored when the fear expires.")
+                    .define("suppress_attacks", true);
+
+            fearBossImmune = builder
+                    .comment("Exempt bosses and other dragons. With this false, two dragons will flee",
+                            "from each other.")
+                    .define("boss_immune", true);
+
+            fearPlayerVignette = builder
+                    .comment("Give nearby players a brief dark screen-edge vignette pulse on the reveal.",
+                            "Purely cosmetic - it never affects movement, input or control. Set false to",
+                            "remove it without touching the mob behaviour.")
+                    .define("player_vignette", true);
 
             builder.pop();
         }
@@ -449,6 +513,16 @@ public final class RasenganConfig {
     /** Reveal tick, clamped below the total so a misconfiguration cannot skip the reveal. */
     public static int summonRevealTick() {
         return Math.min(SERVER.summonRevealTick.get(), SERVER.summonCinematicTicks.get() - 1);
+    }
+
+    /**
+     * The five-stage layout for the current configuration.
+     *
+     * <p>Both sides call this, so the server's reveal beat and the client's smoke stages cannot
+     * disagree. See {@link SummonTimeline}.
+     */
+    public static SummonTimeline.Stages summonStages() {
+        return SummonTimeline.of(SERVER.summonCinematicTicks.get(), summonRevealTick());
     }
 
     public static int castDurationTicks(dev.rasengan.AbilityType ability) {

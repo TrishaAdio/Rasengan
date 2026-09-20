@@ -15,6 +15,13 @@ interpolate, but they never decide whether the ability may be used.
 
 The dragon itself is documented in [`DRAGON.md`](DRAGON.md). All three keys are remappable.
 
+The Summoning Jutsu is a five-stage, **3.5 s** smoke-driven cinematic: a rune seal spreads, a dense
+white column erupts and completely hides the arrival point, the dragon is revealed through thinning
+smoke, its wing downbeat blows the smoke outward, and residual fog settles. Nearby hostile mobs flee
+from it. The camera nudge is optional and every visual works without it —
+`[summoning] camera_effect = false`. Stage timings, the camera-hitch diagnosis, the smoke design and
+the fear effect are all in [`SUMMONING.md`](SUMMONING.md).
+
 ---
 
 ## 1. Loader, dependencies and exact versions
