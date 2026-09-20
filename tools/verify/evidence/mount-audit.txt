@@ -1,11 +1,12 @@
 
 === A. Head geometry comes from the asset ===
-  head box (model space, blocks): x[-0.68019,0.68019] y[3.31250,5.18934] z[-5.12500,-3.31250]
-  size: 1.3604 wide x 1.8768 tall x 1.8125 deep
+  head box (model space, blocks): x[-0.83019,0.83019] y[3.16250,5.33934] z[-5.27500,-3.16250]
+  size: 1.6604 wide x 2.1768 tall x 2.1125 deep
   rider anchor (rest pose): up 4.56250, forward -3.87500
   head centre is 4.2188 blocks forward; the collision box reaches 3.0
   ok:   the head sits OUTSIDE the 6.0-wide collision box, so vanilla picking cannot see it
-  ok:   the head box is much smaller than the body (under 2 blocks in every axis)
+  region vs body: 27.7% of the 6.0 width, 43.5% of the 5.0 height
+  ok:   the region is under half the body's width and height, i.e. still the head
   ok:   the rider anchor is inside the head box vertically
   ok:   the rider anchor is NOT at the horn tips (below the box top)
 
@@ -22,7 +23,7 @@
   ok:   the head region rotates with the body rather than being world-aligned
   aiming at the new front after that yaw:            true
   ok:   the head is hittable from wherever it now points
-  horizontal fan test: 13 of 65 directions hit (20.0%)
+  horizontal fan test: 15 of 65 directions hit (23.1%)
   ok:   the head is a narrow target, not a wide one (under 30% of the fan)
 
 === C. Basis is orthonormal and the model/world transform round-trips ===

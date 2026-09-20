@@ -47,13 +47,25 @@ public final class RasenganMountInput {
 
     private static int cooldown;
 
-    /** Whether the crosshair is currently on a mountable head. Drives the client-side highlight. */
-    private static boolean headTargeted;
+    /**
+     * The dragon whose head is currently under the crosshair, or null.
+     *
+     * <p>Held rather than recomputed per frame so {@link DragonHeadHighlight} draws exactly the region the
+     * input code would act on - if the outline is visible, a click will be sent.
+     */
+    private static DragonEntity targeted;
+
+    /** Whether a click would actually mount, as opposed to merely being aimed at a head. */
+    private static boolean mountable;
 
     private RasenganMountInput() {}
 
-    public static boolean isHeadTargeted() {
-        return headTargeted;
+    public static DragonEntity targetedDragon() {
+        return targeted;
+    }
+
+    public static boolean isMountable() {
+        return mountable;
     }
 
     /** Called from {@code ClientTickEvent.Pre}. */
@@ -61,25 +73,42 @@ public final class RasenganMountInput {
         if (cooldown > 0) {
             cooldown--;
         }
-        headTargeted = false;
+        targeted = null;
+        mountable = false;
 
         LocalPlayer player = minecraft.player;
         if (player == null || minecraft.level == null || minecraft.screen != null) {
             return;
         }
-        // Riding already: left-click stays a plain attack. See the class note.
+        // Riding already: both buttons stay ordinary. See the class note.
         if (player.isPassenger()) {
             return;
         }
 
         DragonEntity head = findHead(minecraft, player);
-        headTargeted = head != null;
+        targeted = head;
         if (head == null) {
             return;
         }
+        // Ownership is re-checked server-side; this only decides how the outline is drawn, and whether
+        // it is worth sending anything at all.
+        mountable = head.mayMount(player);
 
+        // BOTH buttons mount.
+        //
+        // Left-click is what the feature was specified around, but right-click is what every vanilla
+        // mount uses - horses, boats, striders, camels - so it is what a player's hand does first. The
+        // original build accepted only left-click and the first thing that happened was someone trying
+        // right-click, getting nothing, then trying left-click and also getting nothing because of
+        // separate bugs. Accepting both removes a whole class of "is it broken or am I?" confusion.
+        //
+        // The click is consumed only when a head is targeted, so ordinary attacking and item use are
+        // untouched everywhere else.
         boolean clicked = false;
         while (minecraft.options.keyAttack.consumeClick()) {
+            clicked = true;
+        }
+        while (minecraft.options.keyUse.consumeClick()) {
             clicked = true;
         }
         if (!clicked || cooldown > 0) {

@@ -60,6 +60,50 @@ ground for the remaining seconds would read as the mount being broken.
 
 ---
 
+## 1a. How you actually mount — and what was wrong first time
+
+**Look at the dragon's head. A cyan box outlines it. Left-click *or* right-click.**
+
+The first build shipped without that outline and with two bugs that between them made mounting look
+completely broken. Recorded because each was a design failure rather than a typo:
+
+### Both buttons work, not just left
+
+Left-click is what the feature was specified around. **Right-click is what every vanilla mount uses** —
+horses, boats, striders, camels — so it is what a player's hand reaches for first. Accepting only
+left-click meant the natural attempt did nothing, the player fell back to left-click, and *that* also
+did nothing for an unrelated reason. Two silent failures in a row is indistinguishable from an unfinished
+feature. Both buttons now mount, and the click is only consumed when a head is actually targeted, so
+attacking and item use are untouched everywhere else.
+
+### `/spawn dragon` produced a permanently unrideable dragon
+
+`SpawnCommand` never set a summoner, and mounting is summoner-only — so `summonerUuid` was null and
+`mayMount` refused everything. The message was *"this dragon answers only to the one who called it"*,
+about a dragon nobody had called. And `/spawn dragon` is the obvious way to go and try the mount, so this
+was the first thing anyone would hit. A command-spawned dragon now belongs to whoever spawned it and
+starts its grace period like a summoned one.
+
+### There was no feedback of any kind
+
+The worst of the three, and the reason the other two were so hard to tell apart. The mount region is
+1.36 × 1.88 × 1.81 blocks on a creature 29.5 blocks across, it is **not** a vanilla hitbox, so it gets no
+crosshair change and no entity outline — and a click that missed it was silent, because the client
+deliberately does not send a packet it knows will fail. A player had no way to distinguish "aiming
+wrongly", "out of range", "not the owner" and "broken".
+
+Three fixes:
+
+- **The region draws itself.** `DragonHeadHighlight` outlines the exact box the server validates against,
+  bright when you may mount it and dim when you may not — so it doubles as the ownership indicator. If the
+  outline is not on screen, you are not aiming at it.
+- **A missed click that lands near a mountable dragon says "Aim for its head."** Only when there *is* a
+  mountable dragon nearby, so it is not noise on every sword swing.
+- **A small aim margin**, 0.15 blocks. Measured, not guessed: at 0.30 the region covered 29.2% of a
+  16-block aim fan and stood 2.48 blocks tall against a 5.0-tall body, which stops being the head. At 0.15
+  it is 27.7% of the body's width and 43.5% of its height. A bigger invisible box is still invisible —
+  the outline is the real fix.
+
 ## 2. The head region
 
 The head is a **genuinely separate region**, sized from the asset, not a reuse of the body hitbox.

@@ -111,6 +111,10 @@ public final class RasenganRenderer {
         // was drawn even if the summoner walks away mid-sequence.
         SummonCinematic.submit(poseStack, collector, cameraPos, gameTime, partialTick, maxDistance);
 
+        // The mount region outlines itself when the summoner looks at it. Without this the head is an
+        // invisible 1.4-block target on a 29.5-block creature and a click that misses is silent.
+        DragonHeadHighlight.submit(poseStack, collector, cameraPos);
+
         if (ClientCastTracker.isEmpty()) {
             return;
         }

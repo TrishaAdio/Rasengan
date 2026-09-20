@@ -14,6 +14,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.PermissionCheck;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
@@ -85,6 +86,22 @@ public final class SpawnCommand {
             return 0;
         }
         spawned.snapTo(at.x, at.y, at.z, source.getRotation().y, 0.0F);
+
+        // ---- a command-spawned dragon belongs to whoever spawned it ----
+        //
+        // Without this it had NO summoner, and since mounting is summoner-only that made every dragon
+        // spawned this way permanently unrideable - the refusal being "this dragon answers only to the one
+        // who called it", about a dragon nobody had called. /spawn dragon is the obvious way to try the
+        // mount, so this was the first thing a player would hit and the least informative way to fail.
+        //
+        // The grace is started too, so a command-spawned dragon behaves exactly like a summoned one from
+        // the moment it appears rather than being a subtly different object.
+        if (spawned instanceof DragonEntity dragon
+                && source.getEntity() instanceof ServerPlayer player) {
+            dragon.setSummoner(player.getUUID());
+            dragon.beginSpawnGrace();
+        }
+
         if (!level.addFreshEntity(spawned)) {
             source.sendFailure(Component.literal("The world refused to accept the entity."));
             return 0;

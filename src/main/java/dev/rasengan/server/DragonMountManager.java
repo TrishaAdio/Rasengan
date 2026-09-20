@@ -70,7 +70,15 @@ public final class DragonMountManager {
         ServerLevel level = (ServerLevel) player.level();
         DragonEntity target = findHeadUnderCrosshair(level, player);
         if (target == null) {
-            return false; // not looking at a head: a normal left-click, nothing to do
+            // The client only sends when its own trace hit, so reaching here means the two disagreed -
+            // latency on a moving dragon, most likely. Say something rather than nothing: a click that
+            // produces silence is indistinguishable from a broken feature, which is precisely the failure
+            // this whole path was reworked to remove.
+            DragonEntity nearby = findNearestMountable(level, player);
+            if (nearby != null) {
+                reject(player, "Aim for its head.");
+            }
+            return false;
         }
 
         if (!target.mayMount(player)) {
@@ -120,6 +128,30 @@ public final class DragonMountManager {
             }
             double distance = DragonAnchor.headCentre(dragon.position(), dragon.getYRot(),
                     dragon.getXRot(), (float) dragon.tickCount, airborne).distanceToSqr(eye);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = dragon;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The closest dragon this player could mount, ignoring where they are looking.
+     *
+     * <p>Used only to decide whether a missed click deserves an explanation. Without it, telling every
+     * player who swings a sword "aim for its head" would be noise.
+     */
+    @Nullable
+    private static DragonEntity findNearestMountable(ServerLevel level, ServerPlayer player) {
+        DragonEntity best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (DragonEntity dragon : level.getEntities(
+                net.minecraft.world.level.entity.EntityTypeTest.forClass(DragonEntity.class),
+                player.getBoundingBox().inflate(SEARCH_RADIUS),
+                candidate -> candidate.isAlive() && !candidate.isHiddenForSummon()
+                        && candidate.mayMount(player))) {
+            double distance = dragon.distanceToSqr(player);
             if (distance < bestDistance) {
                 bestDistance = distance;
                 best = dragon;
