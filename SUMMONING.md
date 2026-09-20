@@ -46,7 +46,23 @@ immediately (`pruneDeadDragons` runs every server tick).
 > [`HANDOFF.md`](HANDOFF.md#7-outstanding-work) with the fix it needs. Do not read "one dragon per
 > player" as holding across restarts until that lands.
 
-### The summoner is recorded, but owns nothing
+### The summoner is recorded, and now owns the ride
+
+> **Updated.** This section originally said the summoner owned *nothing*. That was true when the dragon
+> was purely a standalone boss. The mount phase changes it: `summonerUuid` now gates who may ride, and it
+> is **persisted with the entity**, so the link survives a restart. See [`MOUNT.md`](MOUNT.md).
+>
+> What it still confers: nothing else. No taming, no loyalty, no command over its targeting. A ridden
+> dragon is as hostile to everyone else as an unridden one, and it is as hostile to its summoner the
+> moment they step off.
+>
+> Persisting it also closed the restart hole recorded in earlier handoffs: the one-dragon-per-player limit
+> used to live only in an in-memory map cleared on shutdown, so a restart let a player summon a second
+> dragon while the first was still alive. `hasLiveDragon` now falls back to scanning loaded levels for a
+> dragon whose `summoner()` matches. Verified by clearing the map mid-run and confirming the limit still
+> holds. One residual limit, stated in `MOUNT.md`: the scan sees loaded entities only.
+
+### The summoner is recorded, but owns nothing (original rationale)
 
 `DragonEntity.summonerUuid` exists solely for the one-per-player check. It grants no control, no
 taming, no riding and no loyalty — the dragon is exactly as hostile to its summoner as to anyone

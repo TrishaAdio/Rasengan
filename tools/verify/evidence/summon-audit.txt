@@ -1,17 +1,20 @@
-Summoning Jutsu - live dedicated-server audit
-=============================================
+Summoning + mount/ride - live dedicated-server audit
+====================================================
 
 Produced by: tools/verify/run_summon_test.sh
 Minecraft 26.1.2 / NeoForge 26.1.2.109, dedicated server, flat world,
 pause-when-empty-seconds=0, 225 forceloaded chunks.
 
-The harness (tools/verify/SummonAudit.java) inserts two real ServerPlayer instances into the
-real PlayerList over a socket-less Connection and records their outbound packets instead of
-writing them. It calls doTick() itself, because ServerPlayer.tick() does not call
-Player.tick() in 26.1 and the charge bars would otherwise sit at 0.
+Two synthetic ServerPlayers in the real PlayerList over a socket-less Connection, with
+outbound packets recorded rather than written. doTick() is called by the harness because
+ServerPlayer.tick() does not call Player.tick() in 26.1.
 
-NOT verified here, and not verifiable in this environment: anything visual or audible.
-No display and no audio device. See the 'Not verified' section of SUMMONING.md.
+Rider input is fed through ServerPlayer.setLastClientInput, i.e. vanilla's own replicated
+Input record - the same field the real ServerboundPlayerInputPacket writes. The harness does
+not call the launch directly; it presses W and lets the server's own detector decide.
+
+NOT verified here: anything visual or audible. No display, no audio device, no real client.
+See the 'Not verified' sections of MOUNT.md and SUMMONING.md.
 
 -----------------------------------------------------------------------------------
 
@@ -63,8 +66,8 @@ PASS the two bars are independent: the summoning bar is full while the cast bar 
 PASS trySummon succeeds at READY
 PASS summoner got exactly one SummonStart (1)
 PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
-PASS both players got byte-identical SummonStart data (same seed -2648856159056896179)
-SummonStart: summonerId=1 dragonId=12 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
+PASS both players got byte-identical SummonStart data (same seed 8567668438829997028)
+SummonStart: summonerId=20 dragonId=43 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
 PASS SummonStart carries the configured timings
 PASS SummonStart identifies the summoner by entity id
 PASS SummonStart's camera flag matches the config toggle
@@ -116,7 +119,7 @@ sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
 PASS the cinematic is finished and cleaned up
 PASS the summoner got exactly one SummonEnd (1)
 PASS the observer got the same SummonEnd, so their camera is released too (1)
-SummonEnd: summonerId=1 reason=COMPLETED
+SummonEnd: summonerId=20 reason=COMPLETED
 PASS a sequence that ran to its end reports COMPLETED
 PASS SummonEnd identifies which sequence ended
 PASS both players got byte-identical SummonEnd data
@@ -130,16 +133,16 @@ refusal text: Your dragon is already here. It will not come twice.
 PASS the refusal did not spawn a second dragon
 PASS the refusal started no cinematic
 fear expired at scenario tick 181 = reveal+141 (configured 140t)
-furthest a frightened mob got from the dragon: +7.78 blocks
+furthest a frightened mob got from the dragon: +17.25 blocks
 PASS fear lasted the configured duration (141 vs 140t)
-PASS frightened mobs actually moved away from the dragon (max +7.78 blocks)
+PASS frightened mobs actually moved away from the dragon (max +17.25 blocks)
 leftover flee goals after expiry: 0; still-suppressed mobs: 0
 PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
 PASS targeting suppression was lifted on every mob
 PASS the manager no longer tracks the expired mobs
-flight after the cinematic: 99 samples, path 49.46 blocks, mean 0.500 b/t, stalled ticks 0
+flight after the cinematic: 99 samples, path 47.30 blocks, mean 0.478 b/t, stalled ticks 0
 PASS the summoned dragon never stalls (0 ticks)
-PASS the summoned dragon genuinely flies off under the normal AI (49.46 blocks)
+PASS the summoned dragon genuinely flies off under the normal AI (47.30 blocks)
 PASS the arrival flourish has ended and normal AI has the entity
 killing the dragon to test that the gate reopens
 PASS dragon is gone
@@ -150,7 +153,7 @@ PASS the ownership refusal really was exercised
 ---- interruption test ----
 PASS a cinematic is running to interrupt
 PASS its dragon is pre-spawned and still hidden
-summoner killed at scenario tick 194 mid-cinematic
+summoner killed at scenario tick 356 mid-cinematic
 PASS the interrupted cinematic was abandoned (0 still pending)
 PASS the never-revealed dragon was discarded, not left hidden in the world
 PASS no leftover dragon after the interruption (0)
@@ -158,6 +161,49 @@ PASS the observer was told the sequence ended, so their camera is restored
 SummonEnd on interruption: reason=INTERRUPTED
 PASS the interruption is reported as INTERRUPTED, not COMPLETED
 PASS no fear was applied by a sequence that never reached its reveal (0)
+---- mount tests: summoning a fresh dragon ----
+PASS a dragon was summoned for the mount test
+grace armed at reveal+1: immunity=199t perch=199t (configured 200t)
+PASS spawn immunity is armed for the configured duration (199 vs 200)
+PASS the dragon reports itself immune
+PASS the dragon records its summoner
+PASS the summoner may mount
+PASS a player who did not summon it may NOT mount
+head centre (0.50, -53.62, 5.41), dragon at (0.50, -58.00, 9.50), separation 5.991 blocks
+PASS the head region is over 3 blocks from the entity origin, i.e. outside the 6.0-wide collision box
+PASS a non-summoner's mount request is refused
+PASS and did not put them aboard
+summoner at (0.50, -53.47, 5.83) aiming at head: mounted=true
+PASS the summoner mounts by aiming at the head
+PASS the summoner is the rider
+PASS the ride phase is set, got 1
+PASS mounting during the grace window is allowed and did not end the immunity
+after WW: ridePhase=2 perch=0t immunity=189t
+PASS a double-tap of W launched the dragon, got phase 2
+PASS the launch cut the grounded perch short
+PASS but did NOT shorten the damage immunity - the two clocks are independent
+launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.735 blocks
+PASS the dragon genuinely climbed (peak vy 1.4626493899367337 b/t)
+PASS the climb ramped in rather than snapping to peak velocity
+PASS no single tick jumped more than half the peak
+PASS real altitude was gained (21.73 blocks)
+dismounted at y=-31.68 (26.20 above the mount point)
+PASS the dragon has no rider after dismount
+PASS the ride phase is cleared, got 0
+PASS the dragon is handed back to its own AI, not left frozen
+PASS the player is no longer a passenger
+PASS the dragon is moving again under its own AI
+post-dismount: dragon velocity 0.6122 b/t, ridePhase=0
+cleared the in-memory dragon map (had 1); hasLiveDragon now reports true
+PASS the one-dragon-per-player limit survives the in-memory map being lost, because the summoner is persisted on the entity
+first damage landed at grace+200t (immunity configured 200t); health 300.0 -> 277.4
+---- immunity summary ----
+damage attempts: 46, landed: 3, last blocked at grace+195t, first landed at grace+200t (configured immunity 200t)
+PASS enough damage attempts were made to be meaningful (46)
+PASS damage was still being blocked inside the window (last blocked at 195t)
+PASS no damage landed before the window expired (first landed at grace+200t, immunity 200t)
+PASS and damage resumed promptly once it did (0t after expiry)
+PASS normal damage handling genuinely resumed
 ---- teardown ----
 PASS synthetic players removed
 ===== BEGIN REPORT =====
@@ -209,8 +255,8 @@ PASS the two bars are independent: the summoning bar is full while the cast bar 
 PASS trySummon succeeds at READY
 PASS summoner got exactly one SummonStart (1)
 PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
-PASS both players got byte-identical SummonStart data (same seed -2648856159056896179)
-SummonStart: summonerId=1 dragonId=12 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
+PASS both players got byte-identical SummonStart data (same seed 8567668438829997028)
+SummonStart: summonerId=20 dragonId=43 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
 PASS SummonStart carries the configured timings
 PASS SummonStart identifies the summoner by entity id
 PASS SummonStart's camera flag matches the config toggle
@@ -262,7 +308,7 @@ sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
 PASS the cinematic is finished and cleaned up
 PASS the summoner got exactly one SummonEnd (1)
 PASS the observer got the same SummonEnd, so their camera is released too (1)
-SummonEnd: summonerId=1 reason=COMPLETED
+SummonEnd: summonerId=20 reason=COMPLETED
 PASS a sequence that ran to its end reports COMPLETED
 PASS SummonEnd identifies which sequence ended
 PASS both players got byte-identical SummonEnd data
@@ -276,16 +322,16 @@ refusal text: Your dragon is already here. It will not come twice.
 PASS the refusal did not spawn a second dragon
 PASS the refusal started no cinematic
 fear expired at scenario tick 181 = reveal+141 (configured 140t)
-furthest a frightened mob got from the dragon: +7.78 blocks
+furthest a frightened mob got from the dragon: +17.25 blocks
 PASS fear lasted the configured duration (141 vs 140t)
-PASS frightened mobs actually moved away from the dragon (max +7.78 blocks)
+PASS frightened mobs actually moved away from the dragon (max +17.25 blocks)
 leftover flee goals after expiry: 0; still-suppressed mobs: 0
 PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
 PASS targeting suppression was lifted on every mob
 PASS the manager no longer tracks the expired mobs
-flight after the cinematic: 99 samples, path 49.46 blocks, mean 0.500 b/t, stalled ticks 0
+flight after the cinematic: 99 samples, path 47.30 blocks, mean 0.478 b/t, stalled ticks 0
 PASS the summoned dragon never stalls (0 ticks)
-PASS the summoned dragon genuinely flies off under the normal AI (49.46 blocks)
+PASS the summoned dragon genuinely flies off under the normal AI (47.30 blocks)
 PASS the arrival flourish has ended and normal AI has the entity
 killing the dragon to test that the gate reopens
 PASS dragon is gone
@@ -296,7 +342,7 @@ PASS the ownership refusal really was exercised
 ---- interruption test ----
 PASS a cinematic is running to interrupt
 PASS its dragon is pre-spawned and still hidden
-summoner killed at scenario tick 194 mid-cinematic
+summoner killed at scenario tick 356 mid-cinematic
 PASS the interrupted cinematic was abandoned (0 still pending)
 PASS the never-revealed dragon was discarded, not left hidden in the world
 PASS no leftover dragon after the interruption (0)
@@ -304,9 +350,52 @@ PASS the observer was told the sequence ended, so their camera is restored
 SummonEnd on interruption: reason=INTERRUPTED
 PASS the interruption is reported as INTERRUPTED, not COMPLETED
 PASS no fear was applied by a sequence that never reached its reveal (0)
+---- mount tests: summoning a fresh dragon ----
+PASS a dragon was summoned for the mount test
+grace armed at reveal+1: immunity=199t perch=199t (configured 200t)
+PASS spawn immunity is armed for the configured duration (199 vs 200)
+PASS the dragon reports itself immune
+PASS the dragon records its summoner
+PASS the summoner may mount
+PASS a player who did not summon it may NOT mount
+head centre (0.50, -53.62, 5.41), dragon at (0.50, -58.00, 9.50), separation 5.991 blocks
+PASS the head region is over 3 blocks from the entity origin, i.e. outside the 6.0-wide collision box
+PASS a non-summoner's mount request is refused
+PASS and did not put them aboard
+summoner at (0.50, -53.47, 5.83) aiming at head: mounted=true
+PASS the summoner mounts by aiming at the head
+PASS the summoner is the rider
+PASS the ride phase is set, got 1
+PASS mounting during the grace window is allowed and did not end the immunity
+after WW: ridePhase=2 perch=0t immunity=189t
+PASS a double-tap of W launched the dragon, got phase 2
+PASS the launch cut the grounded perch short
+PASS but did NOT shorten the damage immunity - the two clocks are independent
+launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.735 blocks
+PASS the dragon genuinely climbed (peak vy 1.4626493899367337 b/t)
+PASS the climb ramped in rather than snapping to peak velocity
+PASS no single tick jumped more than half the peak
+PASS real altitude was gained (21.73 blocks)
+dismounted at y=-31.68 (26.20 above the mount point)
+PASS the dragon has no rider after dismount
+PASS the ride phase is cleared, got 0
+PASS the dragon is handed back to its own AI, not left frozen
+PASS the player is no longer a passenger
+PASS the dragon is moving again under its own AI
+post-dismount: dragon velocity 0.6122 b/t, ridePhase=0
+cleared the in-memory dragon map (had 1); hasLiveDragon now reports true
+PASS the one-dragon-per-player limit survives the in-memory map being lost, because the summoner is persisted on the entity
+first damage landed at grace+200t (immunity configured 200t); health 300.0 -> 277.4
+---- immunity summary ----
+damage attempts: 46, landed: 3, last blocked at grace+195t, first landed at grace+200t (configured immunity 200t)
+PASS enough damage attempts were made to be meaningful (46)
+PASS damage was still being blocked inside the window (last blocked at 195t)
+PASS no damage landed before the window expired (first landed at grace+200t, immunity 200t)
+PASS and damage resumed promptly once it did (0t after expiry)
+PASS normal damage handling genuinely resumed
 ---- teardown ----
 PASS synthetic players removed
-===== END REPORT: 112 pass, 0 fail =====
+===== END REPORT: 143 pass, 0 fail =====
 harness registered
 poolSize=65 loadedTotal=65 files=[rasengan:awakening]
 configured resource=rasengan:awakening (from config value 'rasengan:awakening')
@@ -377,8 +466,8 @@ PASS the two bars are independent: the summoning bar is full while the cast bar 
 PASS trySummon succeeds at READY
 PASS summoner got exactly one SummonStart (1)
 PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
-PASS both players got byte-identical SummonStart data (same seed -2648856159056896179)
-SummonStart: summonerId=1 dragonId=12 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
+PASS both players got byte-identical SummonStart data (same seed 8567668438829997028)
+SummonStart: summonerId=20 dragonId=43 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
 PASS SummonStart carries the configured timings
 PASS SummonStart identifies the summoner by entity id
 PASS SummonStart's camera flag matches the config toggle
@@ -430,7 +519,7 @@ sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
 PASS the cinematic is finished and cleaned up
 PASS the summoner got exactly one SummonEnd (1)
 PASS the observer got the same SummonEnd, so their camera is released too (1)
-SummonEnd: summonerId=1 reason=COMPLETED
+SummonEnd: summonerId=20 reason=COMPLETED
 PASS a sequence that ran to its end reports COMPLETED
 PASS SummonEnd identifies which sequence ended
 PASS both players got byte-identical SummonEnd data
@@ -444,16 +533,16 @@ refusal text: Your dragon is already here. It will not come twice.
 PASS the refusal did not spawn a second dragon
 PASS the refusal started no cinematic
 fear expired at scenario tick 181 = reveal+141 (configured 140t)
-furthest a frightened mob got from the dragon: +7.78 blocks
+furthest a frightened mob got from the dragon: +17.25 blocks
 PASS fear lasted the configured duration (141 vs 140t)
-PASS frightened mobs actually moved away from the dragon (max +7.78 blocks)
+PASS frightened mobs actually moved away from the dragon (max +17.25 blocks)
 leftover flee goals after expiry: 0; still-suppressed mobs: 0
 PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
 PASS targeting suppression was lifted on every mob
 PASS the manager no longer tracks the expired mobs
-flight after the cinematic: 99 samples, path 49.46 blocks, mean 0.500 b/t, stalled ticks 0
+flight after the cinematic: 99 samples, path 47.30 blocks, mean 0.478 b/t, stalled ticks 0
 PASS the summoned dragon never stalls (0 ticks)
-PASS the summoned dragon genuinely flies off under the normal AI (49.46 blocks)
+PASS the summoned dragon genuinely flies off under the normal AI (47.30 blocks)
 PASS the arrival flourish has ended and normal AI has the entity
 killing the dragon to test that the gate reopens
 PASS dragon is gone
@@ -464,7 +553,7 @@ PASS the ownership refusal really was exercised
 ---- interruption test ----
 PASS a cinematic is running to interrupt
 PASS its dragon is pre-spawned and still hidden
-summoner killed at scenario tick 194 mid-cinematic
+summoner killed at scenario tick 356 mid-cinematic
 PASS the interrupted cinematic was abandoned (0 still pending)
 PASS the never-revealed dragon was discarded, not left hidden in the world
 PASS no leftover dragon after the interruption (0)
@@ -472,6 +561,49 @@ PASS the observer was told the sequence ended, so their camera is restored
 SummonEnd on interruption: reason=INTERRUPTED
 PASS the interruption is reported as INTERRUPTED, not COMPLETED
 PASS no fear was applied by a sequence that never reached its reveal (0)
+---- mount tests: summoning a fresh dragon ----
+PASS a dragon was summoned for the mount test
+grace armed at reveal+1: immunity=199t perch=199t (configured 200t)
+PASS spawn immunity is armed for the configured duration (199 vs 200)
+PASS the dragon reports itself immune
+PASS the dragon records its summoner
+PASS the summoner may mount
+PASS a player who did not summon it may NOT mount
+head centre (0.50, -53.62, 5.41), dragon at (0.50, -58.00, 9.50), separation 5.991 blocks
+PASS the head region is over 3 blocks from the entity origin, i.e. outside the 6.0-wide collision box
+PASS a non-summoner's mount request is refused
+PASS and did not put them aboard
+summoner at (0.50, -53.47, 5.83) aiming at head: mounted=true
+PASS the summoner mounts by aiming at the head
+PASS the summoner is the rider
+PASS the ride phase is set, got 1
+PASS mounting during the grace window is allowed and did not end the immunity
+after WW: ridePhase=2 perch=0t immunity=189t
+PASS a double-tap of W launched the dragon, got phase 2
+PASS the launch cut the grounded perch short
+PASS but did NOT shorten the damage immunity - the two clocks are independent
+launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.735 blocks
+PASS the dragon genuinely climbed (peak vy 1.4626493899367337 b/t)
+PASS the climb ramped in rather than snapping to peak velocity
+PASS no single tick jumped more than half the peak
+PASS real altitude was gained (21.73 blocks)
+dismounted at y=-31.68 (26.20 above the mount point)
+PASS the dragon has no rider after dismount
+PASS the ride phase is cleared, got 0
+PASS the dragon is handed back to its own AI, not left frozen
+PASS the player is no longer a passenger
+PASS the dragon is moving again under its own AI
+post-dismount: dragon velocity 0.6122 b/t, ridePhase=0
+cleared the in-memory dragon map (had 1); hasLiveDragon now reports true
+PASS the one-dragon-per-player limit survives the in-memory map being lost, because the summoner is persisted on the entity
+first damage landed at grace+200t (immunity configured 200t); health 300.0 -> 277.4
+---- immunity summary ----
+damage attempts: 46, landed: 3, last blocked at grace+195t, first landed at grace+200t (configured immunity 200t)
+PASS enough damage attempts were made to be meaningful (46)
+PASS damage was still being blocked inside the window (last blocked at 195t)
+PASS no damage landed before the window expired (first landed at grace+200t, immunity 200t)
+PASS and damage resumed promptly once it did (0t after expiry)
+PASS normal damage handling genuinely resumed
 ---- teardown ----
 PASS synthetic players removed
 harness registered
@@ -495,4 +627,4 @@ PASS no line uses legacy section codes
 PASS an unknown configured resource still speaks rather than falling silent
 note: 2 line(s) are loaded from other files and correctly not spoken
 PASS an extra file that lines_resource does not point at is never spoken
-===== END REPORT: 123 pass, 0 fail =====
+===== END REPORT: 154 pass, 0 fail =====

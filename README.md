@@ -13,7 +13,13 @@ interpolate, but they never decide whether the ability may be used.
 | **`G`** | Rasen Shuriken | POWER BAR (shared with Rasengan) | [Rasen Shuriken](#rasen-shuriken) |
 | **`L`** | Summoning Jutsu — brings in the boss dragon | POWER BAR — SUMMONING (independent) | [`SUMMONING.md`](SUMMONING.md) |
 
-The dragon itself is documented in [`DRAGON.md`](DRAGON.md). All three keys are remappable.
+The dragon itself is documented in [`DRAGON.md`](DRAGON.md), and **riding it** in
+[`MOUNT.md`](MOUNT.md). All three keys are remappable.
+
+The summoned dragon is **rideable by the player who summoned it**: left-click its head to stand on it,
+double-tap **W** to launch, then steer with your look direction, elytra-style. It lands and is immune to
+all damage for 10 seconds after arriving. Full detail, config and measured evidence in
+[`MOUNT.md`](MOUNT.md).
 
 The Summoning Jutsu is a five-stage, **3.5 s** smoke-driven cinematic: a rune seal spreads, a dense
 white column erupts and completely hides the arrival point, the dragon is revealed through thinning
