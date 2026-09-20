@@ -73,9 +73,32 @@ public final class DragonAnchor {
     private static final double HEAD_MIN_Z = -5.12500D;
     private static final double HEAD_MAX_Z = -3.31250D;
 
+    /**
+     * How far the interaction region is grown beyond the head's literal geometry, in blocks.
+     *
+     * <p>The head's own cubes span 1.36 x 1.88 x 1.81 blocks. Hitting that exactly, on a creature 29.5
+     * blocks across, from four to six blocks away, is a harder shot than it sounds - and unlike a vanilla
+     * hitbox there is no aim assist helping.
+     *
+     * <p>0.15 rather than something more generous, and the figure was measured rather than picked: at 0.30
+     * the region covered 29.2% of a 16-block-wide aim fan and stood 2.48 blocks tall against a body only
+     * 5.0 tall, which stops being "the head" and starts being "the front half". At 0.15 it is a
+     * comfortable target that is still unambiguously the head. Most of the aiming problem is solved by
+     * {@code DragonHeadHighlight} drawing the region instead, which is the honest fix - a bigger invisible
+     * box is still invisible.
+     *
+     * <p>The margin applies to the interaction box only. The rider's anchor is unaffected: they still
+     * stand on the measured skull plate.
+     *
+     * <p>The margin is applied to the interaction box only. The rider's anchor is unaffected - they still
+     * stand on the measured skull plate.
+     */
+    private static final double HEAD_PICK_MARGIN = 0.15D;
+
     /** Head AABB in dragon-local model space. Static: it never changes, only the frame does. */
     private static final AABB HEAD_BOX = new AABB(
-            HEAD_MIN_X, HEAD_MIN_Y, HEAD_MIN_Z, HEAD_MAX_X, HEAD_MAX_Y, HEAD_MAX_Z);
+            HEAD_MIN_X, HEAD_MIN_Y, HEAD_MIN_Z, HEAD_MAX_X, HEAD_MAX_Y, HEAD_MAX_Z)
+            .inflate(HEAD_PICK_MARGIN);
 
     // ------------------------------------------------------------------
     // Animated head offsets, sampled from the shipped animation files.

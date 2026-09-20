@@ -66,8 +66,8 @@ PASS the two bars are independent: the summoning bar is full while the cast bar 
 PASS trySummon succeeds at READY
 PASS summoner got exactly one SummonStart (1)
 PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
-PASS both players got byte-identical SummonStart data (same seed 8567668438829997028)
-SummonStart: summonerId=20 dragonId=43 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
+PASS both players got byte-identical SummonStart data (same seed -2719735722980900540)
+SummonStart: summonerId=1 dragonId=26 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
 PASS SummonStart carries the configured timings
 PASS SummonStart identifies the summoner by entity id
 PASS SummonStart's camera flag matches the config toggle
@@ -110,7 +110,7 @@ PASS zombie dropped its attack target
 PASS zombie has a real flee goal inserted, not just a debuff
 PASS a hostile outside the fear radius was NOT frightened
 PASS the dragon did not frighten itself
-awakening line: [Demonic Wingwalker] Your ancestors whispered my name. You just yell it.
+awakening line: [Demonic Wingwalker] Let me guess. It's bigger than you expected.
 PASS the nearby player received the line too (1)
 PASS both players received the identical component, so the server picked the line
 PASS the announcement carries no legacy section codes
@@ -119,7 +119,7 @@ sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
 PASS the cinematic is finished and cleaned up
 PASS the summoner got exactly one SummonEnd (1)
 PASS the observer got the same SummonEnd, so their camera is released too (1)
-SummonEnd: summonerId=20 reason=COMPLETED
+SummonEnd: summonerId=1 reason=COMPLETED
 PASS a sequence that ran to its end reports COMPLETED
 PASS SummonEnd identifies which sequence ended
 PASS both players got byte-identical SummonEnd data
@@ -133,16 +133,16 @@ refusal text: Your dragon is already here. It will not come twice.
 PASS the refusal did not spawn a second dragon
 PASS the refusal started no cinematic
 fear expired at scenario tick 181 = reveal+141 (configured 140t)
-furthest a frightened mob got from the dragon: +17.25 blocks
+furthest a frightened mob got from the dragon: +21.02 blocks
 PASS fear lasted the configured duration (141 vs 140t)
-PASS frightened mobs actually moved away from the dragon (max +17.25 blocks)
+PASS frightened mobs actually moved away from the dragon (max +21.02 blocks)
 leftover flee goals after expiry: 0; still-suppressed mobs: 0
 PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
 PASS targeting suppression was lifted on every mob
 PASS the manager no longer tracks the expired mobs
-flight after the cinematic: 99 samples, path 47.30 blocks, mean 0.478 b/t, stalled ticks 0
+flight after the cinematic: 99 samples, path 47.06 blocks, mean 0.475 b/t, stalled ticks 0
 PASS the summoned dragon never stalls (0 ticks)
-PASS the summoned dragon genuinely flies off under the normal AI (47.30 blocks)
+PASS the summoned dragon genuinely flies off under the normal AI (47.06 blocks)
 PASS the arrival flourish has ended and normal AI has the entity
 killing the dragon to test that the gate reopens
 PASS dragon is gone
@@ -169,11 +169,11 @@ PASS the dragon reports itself immune
 PASS the dragon records its summoner
 PASS the summoner may mount
 PASS a player who did not summon it may NOT mount
-head centre (0.50, -53.62, 5.41), dragon at (0.50, -58.00, 9.50), separation 5.991 blocks
+head centre (0.79, -53.61, 5.37), dragon at (0.50, -57.98, 9.45), separation 5.991 blocks
 PASS the head region is over 3 blocks from the entity origin, i.e. outside the 6.0-wide collision box
 PASS a non-summoner's mount request is refused
 PASS and did not put them aboard
-summoner at (0.50, -53.47, 5.83) aiming at head: mounted=true
+summoner at (0.76, -53.38, 5.79) aiming at head: mounted=true
 PASS the summoner mounts by aiming at the head
 PASS the summoner is the rider
 PASS the ride phase is set, got 1
@@ -182,18 +182,18 @@ after WW: ridePhase=2 perch=0t immunity=189t
 PASS a double-tap of W launched the dragon, got phase 2
 PASS the launch cut the grounded perch short
 PASS but did NOT shorten the damage immunity - the two clocks are independent
-launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.735 blocks
+launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.823 blocks
 PASS the dragon genuinely climbed (peak vy 1.4626493899367337 b/t)
 PASS the climb ramped in rather than snapping to peak velocity
 PASS no single tick jumped more than half the peak
-PASS real altitude was gained (21.73 blocks)
-dismounted at y=-31.68 (26.20 above the mount point)
+PASS real altitude was gained (21.82 blocks)
+dismounted at y=-31.51 (26.28 above the mount point)
 PASS the dragon has no rider after dismount
 PASS the ride phase is cleared, got 0
 PASS the dragon is handed back to its own AI, not left frozen
 PASS the player is no longer a passenger
 PASS the dragon is moving again under its own AI
-post-dismount: dragon velocity 0.6122 b/t, ridePhase=0
+post-dismount: dragon velocity 0.6276 b/t, ridePhase=0
 cleared the in-memory dragon map (had 1); hasLiveDragon now reports true
 PASS the one-dragon-per-player limit survives the in-memory map being lost, because the summoner is persisted on the entity
 first damage landed at grace+200t (immunity configured 200t); health 300.0 -> 277.4
@@ -255,8 +255,8 @@ PASS the two bars are independent: the summoning bar is full while the cast bar 
 PASS trySummon succeeds at READY
 PASS summoner got exactly one SummonStart (1)
 PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
-PASS both players got byte-identical SummonStart data (same seed 8567668438829997028)
-SummonStart: summonerId=20 dragonId=43 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
+PASS both players got byte-identical SummonStart data (same seed -2719735722980900540)
+SummonStart: summonerId=1 dragonId=26 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
 PASS SummonStart carries the configured timings
 PASS SummonStart identifies the summoner by entity id
 PASS SummonStart's camera flag matches the config toggle
@@ -299,7 +299,7 @@ PASS zombie dropped its attack target
 PASS zombie has a real flee goal inserted, not just a debuff
 PASS a hostile outside the fear radius was NOT frightened
 PASS the dragon did not frighten itself
-awakening line: [Demonic Wingwalker] Your ancestors whispered my name. You just yell it.
+awakening line: [Demonic Wingwalker] Let me guess. It's bigger than you expected.
 PASS the nearby player received the line too (1)
 PASS both players received the identical component, so the server picked the line
 PASS the announcement carries no legacy section codes
@@ -308,7 +308,7 @@ sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
 PASS the cinematic is finished and cleaned up
 PASS the summoner got exactly one SummonEnd (1)
 PASS the observer got the same SummonEnd, so their camera is released too (1)
-SummonEnd: summonerId=20 reason=COMPLETED
+SummonEnd: summonerId=1 reason=COMPLETED
 PASS a sequence that ran to its end reports COMPLETED
 PASS SummonEnd identifies which sequence ended
 PASS both players got byte-identical SummonEnd data
@@ -322,16 +322,16 @@ refusal text: Your dragon is already here. It will not come twice.
 PASS the refusal did not spawn a second dragon
 PASS the refusal started no cinematic
 fear expired at scenario tick 181 = reveal+141 (configured 140t)
-furthest a frightened mob got from the dragon: +17.25 blocks
+furthest a frightened mob got from the dragon: +21.02 blocks
 PASS fear lasted the configured duration (141 vs 140t)
-PASS frightened mobs actually moved away from the dragon (max +17.25 blocks)
+PASS frightened mobs actually moved away from the dragon (max +21.02 blocks)
 leftover flee goals after expiry: 0; still-suppressed mobs: 0
 PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
 PASS targeting suppression was lifted on every mob
 PASS the manager no longer tracks the expired mobs
-flight after the cinematic: 99 samples, path 47.30 blocks, mean 0.478 b/t, stalled ticks 0
+flight after the cinematic: 99 samples, path 47.06 blocks, mean 0.475 b/t, stalled ticks 0
 PASS the summoned dragon never stalls (0 ticks)
-PASS the summoned dragon genuinely flies off under the normal AI (47.30 blocks)
+PASS the summoned dragon genuinely flies off under the normal AI (47.06 blocks)
 PASS the arrival flourish has ended and normal AI has the entity
 killing the dragon to test that the gate reopens
 PASS dragon is gone
@@ -358,11 +358,11 @@ PASS the dragon reports itself immune
 PASS the dragon records its summoner
 PASS the summoner may mount
 PASS a player who did not summon it may NOT mount
-head centre (0.50, -53.62, 5.41), dragon at (0.50, -58.00, 9.50), separation 5.991 blocks
+head centre (0.79, -53.61, 5.37), dragon at (0.50, -57.98, 9.45), separation 5.991 blocks
 PASS the head region is over 3 blocks from the entity origin, i.e. outside the 6.0-wide collision box
 PASS a non-summoner's mount request is refused
 PASS and did not put them aboard
-summoner at (0.50, -53.47, 5.83) aiming at head: mounted=true
+summoner at (0.76, -53.38, 5.79) aiming at head: mounted=true
 PASS the summoner mounts by aiming at the head
 PASS the summoner is the rider
 PASS the ride phase is set, got 1
@@ -371,18 +371,18 @@ after WW: ridePhase=2 perch=0t immunity=189t
 PASS a double-tap of W launched the dragon, got phase 2
 PASS the launch cut the grounded perch short
 PASS but did NOT shorten the damage immunity - the two clocks are independent
-launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.735 blocks
+launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.823 blocks
 PASS the dragon genuinely climbed (peak vy 1.4626493899367337 b/t)
 PASS the climb ramped in rather than snapping to peak velocity
 PASS no single tick jumped more than half the peak
-PASS real altitude was gained (21.73 blocks)
-dismounted at y=-31.68 (26.20 above the mount point)
+PASS real altitude was gained (21.82 blocks)
+dismounted at y=-31.51 (26.28 above the mount point)
 PASS the dragon has no rider after dismount
 PASS the ride phase is cleared, got 0
 PASS the dragon is handed back to its own AI, not left frozen
 PASS the player is no longer a passenger
 PASS the dragon is moving again under its own AI
-post-dismount: dragon velocity 0.6122 b/t, ridePhase=0
+post-dismount: dragon velocity 0.6276 b/t, ridePhase=0
 cleared the in-memory dragon map (had 1); hasLiveDragon now reports true
 PASS the one-dragon-per-player limit survives the in-memory map being lost, because the summoner is persisted on the entity
 first damage landed at grace+200t (immunity configured 200t); health 300.0 -> 277.4
@@ -466,8 +466,8 @@ PASS the two bars are independent: the summoning bar is full while the cast bar 
 PASS trySummon succeeds at READY
 PASS summoner got exactly one SummonStart (1)
 PASS a nearby player got the same SummonStart, so the cinematic is not summoner-only (1)
-PASS both players got byte-identical SummonStart data (same seed 8567668438829997028)
-SummonStart: summonerId=20 dragonId=43 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
+PASS both players got byte-identical SummonStart data (same seed -2719735722980900540)
+SummonStart: summonerId=1 dragonId=26 origin=(0.5,-60.0,9.5) total=70 reveal=32 release=12 radius=64.0 density=1.0 vignette=true
 PASS SummonStart carries the configured timings
 PASS SummonStart identifies the summoner by entity id
 PASS SummonStart's camera flag matches the config toggle
@@ -510,7 +510,7 @@ PASS zombie dropped its attack target
 PASS zombie has a real flee goal inserted, not just a debuff
 PASS a hostile outside the fear radius was NOT frightened
 PASS the dragon did not frighten itself
-awakening line: [Demonic Wingwalker] Your ancestors whispered my name. You just yell it.
+awakening line: [Demonic Wingwalker] Let me guess. It's bigger than you expected.
 PASS the nearby player received the line too (1)
 PASS both players received the identical component, so the server picked the line
 PASS the announcement carries no legacy section codes
@@ -519,7 +519,7 @@ sequence end at scenario tick 78 = summon+70; bar state=CHARGING charge=1
 PASS the cinematic is finished and cleaned up
 PASS the summoner got exactly one SummonEnd (1)
 PASS the observer got the same SummonEnd, so their camera is released too (1)
-SummonEnd: summonerId=20 reason=COMPLETED
+SummonEnd: summonerId=1 reason=COMPLETED
 PASS a sequence that ran to its end reports COMPLETED
 PASS SummonEnd identifies which sequence ended
 PASS both players got byte-identical SummonEnd data
@@ -533,16 +533,16 @@ refusal text: Your dragon is already here. It will not come twice.
 PASS the refusal did not spawn a second dragon
 PASS the refusal started no cinematic
 fear expired at scenario tick 181 = reveal+141 (configured 140t)
-furthest a frightened mob got from the dragon: +17.25 blocks
+furthest a frightened mob got from the dragon: +21.02 blocks
 PASS fear lasted the configured duration (141 vs 140t)
-PASS frightened mobs actually moved away from the dragon (max +17.25 blocks)
+PASS frightened mobs actually moved away from the dragon (max +21.02 blocks)
 leftover flee goals after expiry: 0; still-suppressed mobs: 0
 PASS every temporary flee goal was removed - no permanently fleeing mobs (0 left)
 PASS targeting suppression was lifted on every mob
 PASS the manager no longer tracks the expired mobs
-flight after the cinematic: 99 samples, path 47.30 blocks, mean 0.478 b/t, stalled ticks 0
+flight after the cinematic: 99 samples, path 47.06 blocks, mean 0.475 b/t, stalled ticks 0
 PASS the summoned dragon never stalls (0 ticks)
-PASS the summoned dragon genuinely flies off under the normal AI (47.30 blocks)
+PASS the summoned dragon genuinely flies off under the normal AI (47.06 blocks)
 PASS the arrival flourish has ended and normal AI has the entity
 killing the dragon to test that the gate reopens
 PASS dragon is gone
@@ -569,11 +569,11 @@ PASS the dragon reports itself immune
 PASS the dragon records its summoner
 PASS the summoner may mount
 PASS a player who did not summon it may NOT mount
-head centre (0.50, -53.62, 5.41), dragon at (0.50, -58.00, 9.50), separation 5.991 blocks
+head centre (0.79, -53.61, 5.37), dragon at (0.50, -57.98, 9.45), separation 5.991 blocks
 PASS the head region is over 3 blocks from the entity origin, i.e. outside the 6.0-wide collision box
 PASS a non-summoner's mount request is refused
 PASS and did not put them aboard
-summoner at (0.50, -53.47, 5.83) aiming at head: mounted=true
+summoner at (0.76, -53.38, 5.79) aiming at head: mounted=true
 PASS the summoner mounts by aiming at the head
 PASS the summoner is the rider
 PASS the ride phase is set, got 1
@@ -582,18 +582,18 @@ after WW: ridePhase=2 perch=0t immunity=189t
 PASS a double-tap of W launched the dragon, got phase 2
 PASS the launch cut the grounded perch short
 PASS but did NOT shorten the damage immunity - the two clocks are independent
-launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.735 blocks
+launch climb: 29 samples, first vy 0.00402, peak vy 1.46265, max step 0.15247, altitude gained 21.823 blocks
 PASS the dragon genuinely climbed (peak vy 1.4626493899367337 b/t)
 PASS the climb ramped in rather than snapping to peak velocity
 PASS no single tick jumped more than half the peak
-PASS real altitude was gained (21.73 blocks)
-dismounted at y=-31.68 (26.20 above the mount point)
+PASS real altitude was gained (21.82 blocks)
+dismounted at y=-31.51 (26.28 above the mount point)
 PASS the dragon has no rider after dismount
 PASS the ride phase is cleared, got 0
 PASS the dragon is handed back to its own AI, not left frozen
 PASS the player is no longer a passenger
 PASS the dragon is moving again under its own AI
-post-dismount: dragon velocity 0.6122 b/t, ridePhase=0
+post-dismount: dragon velocity 0.6276 b/t, ridePhase=0
 cleared the in-memory dragon map (had 1); hasLiveDragon now reports true
 PASS the one-dragon-per-player limit survives the in-memory map being lost, because the summoner is persisted on the entity
 first damage landed at grace+200t (immunity configured 200t); health 300.0 -> 277.4
